@@ -1,0 +1,6 @@
+[2025-10-18 01:18:12] 📈 POSITION OPENED | EDUUSDT | Entry: $0.177000 | Qty: 15.536723 | TP: $0.178100 (+0.62%) | SL: $0.174900 (-1.19%) | Confidence: 50.0% | Capital: $5.50
+[2025-10-18 01:27:27] 📉 POSITION CLOSED | EDUUSDT | Exit: TAKE PROFIT | Entry: $0.177000 | Exit: $0.178200 | PnL: $0.0186 (+0.68%) | New Capital: $5.52
+[2025-10-18 01:28:56] 📈 POSITION OPENED | ENAUSDT | Entry: $0.444100 | Qty: 6.213290 | TP: $0.446800 (+0.61%) | SL: $0.438800 (-1.19%) | Confidence: 50.0% | Capital: $5.52
+[2025-10-18 01:31:53] 📉 POSITION CLOSED | ENAUSDT | Exit: TAKE PROFIT | Entry: $0.444100 | Exit: $0.446800 | PnL: $0.0168 (+0.61%) | New Capital: $5.54
+[2025-10-18 02:27:31] 📈 POSITION OPENED | PHBUSDT | Entry: $0.499000 | Qty: 10.200000 | TP: $0.502000 (+0.60%) | SL: $0.491000 (-1.60%) | Confidence: 50.0% | Capital: $5.50
+[2025-10-18 02:51:17] 📉 POSITION CLOSED | PHBUSDT | Exit: TAKE PROFIT | Entry: $0.499000 | Exit: $0.501000 | PnL: $0.0202 (+0.40%) | New Capital: $5.52[2025-10-19 00:14:34] 📈 POSITION OPENED | LTCUSDT | Entry: $91.250000 | Qty: 0.055000 | TP: $91.800000 (+0.60%) | SL: $89.700000 (-1.70%) | Confidence: 92.5% | Capital: $5.50
