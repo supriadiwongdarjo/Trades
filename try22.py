@@ -138,6 +138,29 @@ MIN_POSITION_SIZING = 0.1  # Minimum 10%
 MAX_ADAPTATION_PERCENT = 0.25  # Maksimal perubahan 25%
 
 # ==================== TELEGRAM & LOGGING ====================
+import requests
+import os
+
+def send_ip_to_telegram():
+    try:
+        # Ambil IP publik server
+        ip = requests.get("https://api.ipify.org").text.strip()
+        print(f"🌍 Server Public IP: {ip}")
+
+        # Kirim ke Telegram kalau variabel tersedia
+        TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+        TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+        if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+            msg = f"🚀 Bot started on Render.\n🌐 Public IP: {ip}\n(Whitelist this IP in Binance)"
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": msg}
+            )
+
+    except Exception as e:
+        print(f"⚠️ Gagal cek/kirim IP: {e}")
+
 def load_config():
     """Load configuration from file"""
     default_config = {
@@ -2031,4 +2054,5 @@ def main():
     main_improved_fast()
 
 if __name__ == "__main__":
+    send_ip_to_telegram()
     main()
