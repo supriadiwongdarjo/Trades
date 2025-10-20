@@ -3,4 +3,4 @@ numpy==2.3.4
 pandas==2.2.3
 python-binance==1.0.19
 requests
-python-telegram-bot==13.15
+python-telegram-bot==21.4
