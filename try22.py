@@ -141,6 +141,36 @@ MAX_ADAPTATION_PERCENT = 0.25  # Maksimal perubahan 25%
 import requests
 import os
 
+import threading
+
+class RateLimiter:
+    def __init__(self, max_calls, period):
+        self.max_calls = max_calls
+        self.period = period
+        self.calls = []
+        self.lock = threading.Lock()
+    
+    def __call__(self, func):
+        def wrapper(*args, **kwargs):
+            with self.lock:
+                now = time.time()
+                # Remove calls outside the current period
+                self.calls = [call for call in self.calls if now - call < self.period]
+                
+                if len(self.calls) >= self.max_calls:
+                    sleep_time = self.period - (now - self.calls[0])
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+                
+                self.calls.append(now)
+            return func(*args, **kwargs)
+        return wrapper
+
+# Apply rate limiting
+@RateLimiter(max_calls=10, period=60)  # 10 requests per minute
+def get_klines_data_limited(symbol, interval, limit=50):
+    return get_klines_data(symbol, interval, limit)
+
 def send_ip_to_telegram():
     try:
         # Ambil IP publik server
@@ -286,6 +316,26 @@ def handle_telegram_command():
                             
     except Exception as e:
         print(f"❌ Telegram command error: {e}")
+
+def setup_websocket_data_stream():
+    """Setup WebSocket untuk data real-time menggantikan REST API"""
+    global twm
+    
+    if twm is None:
+        twm = ThreadedWebsocketManager(api_key=API_KEY, api_secret=API_SECRET)
+        twm.start()
+    
+    # Subscribe ke semua coin yang dimonitor
+    for coin in COINS:
+        try:
+            twm.start_kline_socket(
+                symbol=coin, 
+                callback=handle_kline_update,
+                interval=Client.KLINE_INTERVAL_5MINUTE
+            )
+            time.sleep(0.1)  # Rate limiting
+        except Exception as e:
+            print(f"WebSocket setup error for {coin}: {e}")
 
 def process_telegram_command(command, chat_id, update_id):
     """Process individual Telegram commands"""
@@ -867,6 +917,81 @@ def trade_performance_feedback_loop():
 
     except Exception as e:
         print(f"❌ Feedback loop error: {e}")
+
+import sqlite3
+import pickle
+
+def setup_cache_db():
+    """Setup SQLite untuk cache data"""
+    conn = sqlite3.connect('trading_cache.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS kline_cache (
+            symbol TEXT,
+            interval TEXT,
+            timestamp INTEGER,
+            data BLOB,
+            PRIMARY KEY (symbol, interval, timestamp)
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def cache_klines_data(symbol, interval, data):
+    """Cache klines data"""
+    conn = sqlite3.connect('trading_cache.db')
+    cursor = conn.cursor()
+    timestamp = int(time.time() // 300) * 300  # 5-minute chunks
+    
+    cursor.execute('''
+        INSERT OR REPLACE INTO kline_cache (symbol, interval, timestamp, data)
+        VALUES (?, ?, ?, ?)
+    ''', (symbol, interval, timestamp, pickle.dumps(data)))
+    conn.commit()
+    conn.close()
+
+def get_cached_data(symbol, interval):
+    """Get cached klines data"""
+    try:
+        conn = sqlite3.connect('trading_cache.db')
+        cursor = conn.cursor()
+        timestamp = int(time.time() // 300) * 300
+        
+        cursor.execute('''
+            SELECT data FROM kline_cache 
+            WHERE symbol=? AND interval=? AND timestamp=?
+        ''', (symbol, interval, timestamp))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return pickle.loads(result[0])
+    except:
+        pass
+    return None
+
+def get_klines_data_fallback(symbol, interval, limit=50):
+    """Fallback menggunakan external API atau cache"""
+    try:
+        # Coba Binance dulu
+        return get_klines_data_limited(symbol, interval, limit)
+    except Exception as e:
+        print(f"Binance API banned, using fallback for {symbol}")
+        
+        # Fallback 1: Gunakan Binance public API (no key)
+        try:
+            url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                klines = response.json()
+                # Process klines data sama seperti fungsi original
+                return process_klines_data(klines)
+        except:
+            pass
+        
+        # Fallback 2: Gunakan cached data
+        return get_cached_data(symbol, interval)
 
 def is_trading_paused():
     """Cek apakah trading sedang dipause karena poor performance"""
@@ -1945,6 +2070,16 @@ def main_improved_fast():
     initialize_logging()
     load_trade_history()
     load_bot_state()
+
+    setup_cache_db()
+    
+    # Initialize dengan fallback
+    if not initialize_binance_client():
+        print("❌ Binance client gagal, menggunakan mode fallback")
+        # Tetapi bot masih bisa jalan dengan data cached/WebSocket
+    
+    # Setup WebSocket untuk real-time data
+    setup_websocket_data_stream()
     
     if not initialize_binance_client():
         print("❌ Gagal inisialisasi Binance client")
@@ -2056,3 +2191,4 @@ def main():
 if __name__ == "__main__":
     send_ip_to_telegram()
     main()
+
