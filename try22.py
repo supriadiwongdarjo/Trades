@@ -2216,15 +2216,12 @@ if __name__ == "__main__":
     print("🚀 Starting trading bot in Web Service mode...")
     check_render_environment()
 
-    # Jalankan Flask (web health) di thread terpisah
-    def run_health():
-        create_simple_health_endpoint()
+    # Jalankan Flask di thread terpisah biar port tetap hidup
+    threading.Thread(target=create_simple_health_endpoint, daemon=True).start()
 
-    flask_thread = threading.Thread(target=run_health, daemon=False)
-    flask_thread.start()
-
-    # Jalankan bot utama di main thread
+    # Jalankan bot langsung di main process
     run_background_worker()
+
 
 
 
