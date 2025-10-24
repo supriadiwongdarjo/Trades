@@ -1033,6 +1033,24 @@ def initialize_binance_client():
         return True
     except Exception as e:
         print(f"❌ Failed to initialize Binance client: {e}")
+        send_telegram_message("Jeda Sisa 720 Detik")
+        time.sleep(60)
+        send_telegram_message("Jeda Sisa 660 Detik")
+        time.sleep(60)
+        send_telegram_message("Jeda Sisa 600 Detik")
+        time.sleep(60)
+        send_telegram_message("Jeda Sisa 540 Detik")
+        time.sleep(60)
+        send_telegram_message("Jeda Sisa 480 Detik")
+        time.sleep(60)
+        send_telegram_message("Jeda Sisa 420 Detik")
+        time.sleep(60)
+        send_telegram_message("Jeda Sisa 360 Detik")
+        time.sleep(60)
+        send_telegram_message("Jeda Sisa 300 Detik")
+        time.sleep(60)
+        send_telegram_message("Jeda Sisa 240 Detik")
+        time.sleep(60)
         send_telegram_message("Jeda Sisa 180 Detik")
         time.sleep(60)
         send_telegram_message("Jeda Sisa 120 Detik")
@@ -2269,6 +2287,7 @@ if __name__ == "__main__":
     # kirim info hanya sekali saat star
 
     safe_run_worker()
+
 
 
 
