@@ -299,8 +299,8 @@ def load_config():
     """Load configuration from file"""
     default_config = {
         'trading_params': {
-            'TAKE_PROFIT_PCT': 0.0060,
-            'STOP_LOSS_PCT': 0.0170,
+            'TAKE_PROFIT_PCT': 0.0061,
+            'STOP_LOSS_PCT': 0.0160,
             'TRAILING_STOP_ACTIVATION': 0.0040,
             'TRAILING_STOP_PCT': 0.0080,
             'POSITION_SIZING_PCT': 0.4,
@@ -308,8 +308,8 @@ def load_config():
             'ADAPTIVE_CONFIDENCE': True
         },
         'timeframe_params': {
-            'RSI_MIN_15M': 30,
-            'RSI_MAX_15M': 70,
+            'RSI_MIN_15M': 35,
+            'RSI_MAX_15M': 65,
             'EMA_SHORT_15M': 12,
             'EMA_LONG_15M': 26,
             'MACD_FAST_15M': 8,
@@ -317,16 +317,16 @@ def load_config():
             'MACD_SIGNAL_15M': 7,
             'LRO_PERIOD_15M': 20,
             'VOLUME_PERIOD_15M': 15,
-            'RSI_MIN_5M': 33,
+            'RSI_MIN_5M': 35,
             'RSI_MAX_5M': 68,
             'EMA_SHORT_5M': 5,
             'EMA_LONG_5M': 20,
             'MACD_FAST_5M': 8,
             'MACD_SLOW_5M': 21,
-            'MACD_SIGNAL_5M': 7,
+            'MACD_SIGNAL_5M': 8,
             'LRO_PERIOD_5M': 20,
             'VOLUME_PERIOD_5M': 10,
-            'VOLUME_RATIO_MIN': 0.5
+            'VOLUME_RATIO_MIN': 0.8
         }
     }
     
@@ -2255,6 +2255,7 @@ if __name__ == "__main__":
     # kirim info hanya sekali saat star
 
     safe_run_worker()
+
 
 
 
