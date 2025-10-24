@@ -1521,7 +1521,7 @@ def get_precise_quantity(symbol, investment_amount):
             return precise_quantity
             
         # Untuk live trading, gunakan rounding yang tepat
-        adjusted_quantity = theoretical_quantity * 0.998
+        adjusted_quantity = theoretical_quantity * 1.0
         precise_quantity = round_step_size(adjusted_quantity, symbol)
         
         if not precise_quantity:
@@ -2227,4 +2227,5 @@ if __name__ == "__main__":
     else:
         # Local development
         main_improved_fast()
+
 
