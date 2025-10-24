@@ -2213,15 +2213,51 @@ def main_improved_fast():
 def main():
     main_improved_fast()
 
+import threading, requests, time
+
+# ✅ Fungsi ping otomatis agar Render tidak tidur
+def keep_alive_ping():
+    """Keep-alive ping untuk Render agar tidak auto-sleep."""
+    while True:
+        try:
+            requests.get("https://trades-9rpg.onrender.com/health")
+            print("💓 Keep-alive ping sent.")
+        except Exception as e:
+            print("⚠️ Keep-alive error:", e)
+        time.sleep(600)  # setiap 10 menit
+
+# ✅ Jalankan Flask health endpoint di thread terpisah
+def run_health_server():
+    """Menjalankan Flask untuk endpoint /health agar Render mendeteksi port terbuka."""
+    create_simple_health_endpoint()
+
+# ✅ Worker utama dengan watchdog biar gak macet
+def safe_run_worker():
+    """Loop utama bot dengan proteksi error dan auto-restart."""
+    print("🔄 Running trading bot worker (safe mode)...")
+    while True:
+        try:
+            run_background_worker()
+        except Exception as e:
+            print("⚠️ Worker crashed, restarting:", e)
+            time.sleep(3)
+
+# 🚀 Bagian utama: dijalankan hanya jika script dijalankan langsung
 if __name__ == "__main__":
     print("🚀 Starting trading bot in Web Service mode...")
     check_render_environment()
 
-    # Jalankan Flask di thread terpisah biar port tetap hidup
-    threading.Thread(target=create_simple_health_endpoint, daemon=True).start()
+    # Jalankan Flask di thread terpisah (daemon=False supaya gak mati)
+    flask_thread = threading.Thread(target=run_health_server, daemon=False)
+    flask_thread.start()
 
-    # Jalankan bot langsung di main process
-    run_background_worker()
+    # Jalankan keep-alive ping (daemon=True biar ikut mati saat app mati)
+    threading.Thread(target=keep_alive_ping, daemon=True).start()
+
+    # Jalankan bot utama di thread utama (loop + watchdog)
+    safe_run_worker()
+
+
 
 
 
