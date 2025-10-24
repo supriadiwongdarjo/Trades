@@ -1034,11 +1034,11 @@ def initialize_binance_client():
     except Exception as e:
         print(f"❌ Failed to initialize Binance client: {e}")
         send_telegram_message("Jeda Sisa 180 Detik")
-        sleep(60)
+        time.sleep(60)
         send_telegram_message("Jeda Sisa 120 Detik")
-        sleep(60)
+        time.sleep(60)
         send_telegram_message("Jeda Sisa 60 Detik")
-        sleep(60)
+        time.sleep(60)
         return False
 
 def sync_binance_time():
@@ -2105,11 +2105,11 @@ def main_improved_fast():
     if not initialize_binance_client():
         print("❌ Gagal inisialisasi Binance client")
         send_telegram_message("Jeda Sisa 180 Detik")
-        sleep(60)
+        time.sleep(60)
         send_telegram_message("Jeda Sisa 120 Detik")
-        sleep(60)
+        time.sleep(60)
         send_telegram_message("Jeda Sisa 60 Detik")
-        sleep(60)
+        time.sleep(60)
         return
     
     # ✅ DAPATKAN IP PUBLIK UNTUK DEPLOY DI RENDER
@@ -2269,6 +2269,7 @@ if __name__ == "__main__":
     # kirim info hanya sekali saat star
 
     safe_run_worker()
+
 
 
 
