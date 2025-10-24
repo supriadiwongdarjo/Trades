@@ -2240,7 +2240,11 @@ def safe_run_worker():
             run_background_worker()
         except Exception as e:
             print("⚠️ Worker crashed, restarting:", e)
-            time.sleep(3)
+            if "IP banned" in str(e):
+                time.sleep(900)  # tunggu 15 menit biar unban
+            else:
+                time.sleep(5)
+
 
 # 🚀 Bagian utama: dijalankan hanya jika script dijalankan langsung
 if __name__ == "__main__":
@@ -2252,6 +2256,7 @@ if __name__ == "__main__":
     send_deployment_info()
 
     safe_run_worker()
+
 
 
 
