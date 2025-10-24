@@ -26,8 +26,8 @@ INITIAL_INVESTMENT = float(os.getenv('INITIAL_INVESTMENT', '5.5'))
 ORDER_RUN = os.getenv('ORDER_RUN', 'False').lower() == 'true'
 
 # Trading Parameters
-TAKE_PROFIT_PCT = 0.0070
-STOP_LOSS_PCT = 0.0170
+TAKE_PROFIT_PCT = 0.0062
+STOP_LOSS_PCT = 0.0160
 TRAILING_STOP_ACTIVATION = 0.0040
 TRAILING_STOP_PCT = 0.0080
 
@@ -42,7 +42,7 @@ RSI_MIN_15M = 35
 RSI_MAX_15M = 65
 EMA_SHORT_15M = 12
 EMA_LONG_15M = 26
-MACD_FAST_15M = 8
+MACD_FAST_15M = 7
 MACD_SLOW_15M = 21
 MACD_SIGNAL_15M = 7
 LRO_PERIOD_15M = 20
@@ -2143,6 +2143,7 @@ def main_improved_fast():
                 client.ping()
                 consecutive_errors = 0
             except Exception as e:
+                break
                 consecutive_errors += 1
                 print(f"❌ Koneksi error #{consecutive_errors}: {e}")
                 if consecutive_errors >= 3:
@@ -2150,6 +2151,7 @@ def main_improved_fast():
                     send_telegram_message("🔴 <b>KONEKSI BINANCE TERPUTUS</b>\nBot dihentikan otomatis.")
                     BOT_RUNNING = False
                     break
+                break
                 time.sleep(30)
                 continue
             
@@ -2255,6 +2257,7 @@ if __name__ == "__main__":
     # kirim info hanya sekali saat star
 
     safe_run_worker()
+
 
 
 
