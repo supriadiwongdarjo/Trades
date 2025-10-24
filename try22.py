@@ -2252,10 +2252,10 @@ if __name__ == "__main__":
     threading.Thread(target=run_health_server, daemon=False).start()
     threading.Thread(target=keep_alive_ping, daemon=True).start()
 
-    # kirim info hanya sekali saat start
-    send_deployment_info()
+    # kirim info hanya sekali saat star
 
     safe_run_worker()
+
 
 
 
