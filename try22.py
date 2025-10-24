@@ -2213,19 +2213,12 @@ def main():
     main_improved_fast()
 
 if __name__ == "__main__":
-    # Check if running on Render
-    is_render = check_render_environment()
-    
-    if is_render:
-        # Option 1: Run as background worker (no web server)
-        print("🔧 Starting as Background Worker...")
-        run_background_worker()
-        
-        # Option 2: Uncomment below if you need health checks
-        # create_simple_health_endpoint()
-        # run_background_worker()
-    else:
-        # Local development
-        main_improved_fast()
+    # Jalankan mode Web Service di Render
+    print("🚀 Starting trading bot in Web Service mode...")
+    check_render_environment()          # Sesuaikan delay & konfigurasi Render
+    create_simple_health_endpoint()     # 👈 Ini yang bikin port terbuka
+    run_background_worker()             # Jalankan bot di thread terpisah
+
+
 
 
