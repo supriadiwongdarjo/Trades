@@ -2244,18 +2244,16 @@ def safe_run_worker():
 
 # 🚀 Bagian utama: dijalankan hanya jika script dijalankan langsung
 if __name__ == "__main__":
-    print("🚀 Starting trading bot in Web Service mode...")
     check_render_environment()
-
-    # Jalankan Flask di thread terpisah (daemon=False supaya gak mati)
-    flask_thread = threading.Thread(target=run_health_server, daemon=False)
-    flask_thread.start()
-
-    # Jalankan keep-alive ping (daemon=True biar ikut mati saat app mati)
+    threading.Thread(target=run_health_server, daemon=False).start()
     threading.Thread(target=keep_alive_ping, daemon=True).start()
 
-    # Jalankan bot utama di thread utama (loop + watchdog)
+    # kirim info hanya sekali saat start
+    send_deployment_info()
+
     safe_run_worker()
+
+
 
 
 
