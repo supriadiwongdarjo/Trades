@@ -137,6 +137,97 @@ EMA_ALPHA = 0.3
 MIN_POSITION_SIZING = 0.1  # Minimum 10%
 MAX_ADAPTATION_PERCENT = 0.25  # Maksimal perubahan 25%
 
+# ==================== DELAY CONFIGURATION ====================
+# Konfigurasi delay untuk menghindari ban dari Binance
+DELAY_BETWEEN_COINS = 1.2  # Delay 1.2 detik antara analisis coin
+DELAY_BETWEEN_REQUESTS = 0.5  # Delay 0.5 detik antara requests
+DELAY_AFTER_ERROR = 3.0  # Delay 3 detik setelah error
+
+# ==================== FUNGSI UNTUK DEPLOY DI RENDER ====================
+def get_public_ip():
+    """Mendapatkan IP publik yang digunakan untuk deploy di Render"""
+    try:
+        print("🌐 Checking public IP address...")
+        
+        # Coba beberapa services untuk mendapatkan IP
+        services = [
+            'https://api.ipify.org',
+            'https://ident.me',
+            'https://checkip.amazonaws.com',
+            'https://ipinfo.io/ip'
+        ]
+        
+        for service in services:
+            try:
+                response = requests.get(service, timeout=10)
+                if response.status_code == 200:
+                    ip = response.text.strip()
+                    print(f"✅ Public IP: {ip} (from {service})")
+                    
+                    # Kirim IP ke Telegram untuk konfigurasi Binance
+                    if SEND_TELEGRAM_NOTIFICATIONS and TELEGRAM_BOT_TOKEN and ADMIN_CHAT_ID:
+                        ip_message = (
+                            f"🌐 <b>BOT DEPLOYMENT INFO</b>\n"
+                            f"Public IP: <code>{ip}</code>\n"
+                            f"⚠️ <b>Tambahkan IP ini ke whitelist Binance API</b>\n"
+                            f"1. Login ke Binance\n"
+                            f"2. API Management\n"
+                            f"3. Edit restrictions\n"
+                            f"4. Tambahkan: <code>{ip}</code>"
+                        )
+                        send_telegram_message(ip_message)
+                    
+                    return ip
+            except Exception as e:
+                print(f"❌ Failed to get IP from {service}: {e}")
+                continue
+        
+        print("❌ Could not determine public IP")
+        return None
+        
+    except Exception as e:
+        print(f"❌ Error getting public IP: {e}")
+        return None
+
+def check_binance_connection():
+    """Test koneksi ke Binance dengan IP yang terdeteksi"""
+    try:
+        print("🔗 Testing Binance connection...")
+        
+        # Test koneksi dasar
+        client.ping()
+        print("✅ Binance connection test: SUCCESS")
+        
+        # Test mendapatkan server time
+        server_time = client.get_server_time()
+        local_time = int(time.time() * 1000)
+        time_diff = server_time['serverTime'] - local_time
+        print(f"⏰ Server time difference: {time_diff} ms")
+        
+        # Test mendapatkan price untuk satu symbol
+        btc_price = get_current_price('BTCUSDT')
+        if btc_price:
+            print(f"💰 BTC price: ${btc_price:.2f}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Binance connection test failed: {e}")
+        
+        # Kirim error ke Telegram
+        if SEND_TELEGRAM_NOTIFICATIONS:
+            error_msg = (
+                f"🔴 <b>BINANCE CONNECTION FAILED</b>\n"
+                f"Error: {str(e)}\n"
+                f"⚠️ Pastikan:\n"
+                f"• IP sudah di-whitelist di Binance\n"
+                f"• API Key dan Secret benar\n"
+                f"• Tidak ada IP restriction lain"
+            )
+            send_telegram_message(error_msg)
+        
+        return False
+
 # ==================== TELEGRAM & LOGGING ====================
 def load_config():
     """Load configuration from file"""
@@ -306,6 +397,12 @@ def process_telegram_command(command, chat_id, update_id):
         elif command == '/help':
             send_help_message(chat_id)
             
+        elif command == '/ip':
+            # Perintah untuk mendapatkan IP saat ini
+            current_ip = get_public_ip()
+            if current_ip:
+                send_telegram_message(f"🌐 <b>CURRENT PUBLIC IP</b>\n<code>{current_ip}</code>")
+            
         # Mark update as processed
         mark_update_processed(update_id)
         
@@ -450,6 +547,7 @@ def send_help_message(chat_id):
         f"│ /log - Tampilkan log terakhir\n"
         f"│ /config - Tampilkan konfigurasi\n"
         f"│ /help - Tampilkan pesan bantuan\n"
+        f"│ /ip - Tampilkan IP publik\n"
         f"├────────────────────────────┤\n"
         f"│ <b>UBAH KONFIGURASI</b>\n"
         f"│ /set [param] [value]\n"
@@ -1782,6 +1880,12 @@ def monitor_coins_until_signal():
         
         try:
             print(f"   Checking {coin}...")
+            
+            # ✅ TAMBAHKAN DELAY ANTAR COIN UNTUK MENGHINDARI BAN
+            if i > 0:
+                print(f"   ⏳ Waiting {DELAY_BETWEEN_COINS}s before next coin...")
+                time.sleep(DELAY_BETWEEN_COINS)
+            
             analysis = analyze_coin_improved(coin)
             
             # ✅ TAMBAHKAN CEK BOT_RUNNING SETELAH ANALISIS
@@ -1814,17 +1918,20 @@ def monitor_coins_until_signal():
                     print("🛑 Scanning interrupted during batch check")
                     return []
             
-            time.sleep(0.1)  # Delay lebih pendek untuk kecepatan
+            # ✅ TAMBAHKAN DELAY ANTAR REQUEST
+            time.sleep(DELAY_BETWEEN_REQUESTS)
             
         except Exception as e:
             print(f"   ⚠️ {coin}: Error - {e}")
+            
+            # ✅ TAMBAHKAN DELAY LEBIH PANJANG SETELAH ERROR
+            print(f"   ⏳ Waiting {DELAY_AFTER_ERROR}s after error...")
+            time.sleep(DELAY_AFTER_ERROR)
             
             # ✅ CEK BOT_RUNNING SETELAH ERROR JUGA
             if not BOT_RUNNING:
                 print("🛑 Error handling interrupted by /stop command")
                 return []
-            
-            time.sleep(0.2)
     
     print(f"\n📊 SCAN COMPLETE: No signals found in {len(COINS)} coins")
     return []
@@ -1925,6 +2032,16 @@ def main_improved_fast():
     
     if not initialize_binance_client():
         print("❌ Gagal inisialisasi Binance client")
+        return
+    
+    # ✅ DAPATKAN IP PUBLIK UNTUK DEPLOY DI RENDER
+    public_ip = get_public_ip()
+    if public_ip:
+        print(f"🌐 Bot running from IP: {public_ip}")
+    
+    # ✅ TEST KONEKSI BINANCE
+    if not check_binance_connection():
+        print("❌ Binance connection test failed. Check your API keys and IP whitelist.")
         return
     
     startup_msg = f"🤖 <b>BOT STARTED - TELEGRAM CONTROL</b>\nCoins: {len(COINS)}\nMode: {'LIVE' if ORDER_RUN else 'SIMULATION'}\nStatus: MENUNGGU PERINTAH /start"
