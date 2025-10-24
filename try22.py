@@ -143,6 +143,11 @@ DELAY_BETWEEN_COINS = 1.2  # Delay 1.2 detik antara analisis coin
 DELAY_BETWEEN_REQUESTS = 0.5  # Delay 0.5 detik antara requests
 DELAY_AFTER_ERROR = 3.0  # Delay 3 detik setelah error
 
+# Adjust for Render environment
+if os.environ.get('RENDER'):
+    DELAY_BETWEEN_COINS = 2.0
+    DELAY_BETWEEN_REQUESTS = 1.0
+
 # ==================== FUNGSI UNTUK DEPLOY DI RENDER ====================
 def get_public_ip():
     """Mendapatkan IP publik yang digunakan untuk deploy di Render"""
@@ -188,6 +193,66 @@ def get_public_ip():
     except Exception as e:
         print(f"❌ Error getting public IP: {e}")
         return None
+
+# ==================== RENDER FIX - BACKGROUND WORKER ====================
+def run_background_worker():
+    """Run as background worker for Render - no web server needed"""
+    print("🔄 Running as Background Worker on Render...")
+    
+    # Get public IP for Binance whitelist
+    public_ip = get_public_ip()
+    
+    # Initialize and start the bot
+    main_improved_fast()
+
+def create_simple_health_endpoint():
+    """Create a simple health endpoint if running as web service"""
+    try:
+        from flask import Flask
+        import os
+        
+        app = Flask(__name__)
+        
+        @app.route('/')
+        def health_check():
+            return {
+                'status': 'running', 
+                'service': 'trading-bot',
+                'timestamp': datetime.now().isoformat()
+            }
+        
+        @app.route('/health')
+        def health():
+            return {'status': 'healthy'}
+        
+        port = int(os.environ.get('PORT', 5000))
+        print(f"🌐 Health endpoint running on port {port}")
+        
+        # Run in background thread to not block the bot
+        import threading
+        def run_flask():
+            app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+        
+        flask_thread = threading.Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        
+    except ImportError:
+        print("⚠️ Flask not installed, running as pure background worker")
+    except Exception as e:
+        print(f"⚠️ Health endpoint error: {e}")
+
+def check_render_environment():
+    """Check if running on Render and adjust configuration accordingly"""
+    render_env = os.environ.get('RENDER', False)
+    if render_env:
+        print("🚀 Running on Render cloud platform")
+        # Adjust delays for Render environment
+        global DELAY_BETWEEN_COINS, DELAY_BETWEEN_REQUESTS
+        DELAY_BETWEEN_COINS = 2.0  # Increase delays for Render
+        DELAY_BETWEEN_REQUESTS = 1.0
+        print(f"🔧 Adjusted delays for Render: {DELAY_BETWEEN_COINS}s between coins")
+        return True
+    return False
 
 def check_binance_connection():
     """Test koneksi ke Binance dengan IP yang terdeteksi"""
@@ -2148,4 +2213,18 @@ def main():
     main_improved_fast()
 
 if __name__ == "__main__":
-    main()
+    # Check if running on Render
+    is_render = check_render_environment()
+    
+    if is_render:
+        # Option 1: Run as background worker (no web server)
+        print("🔧 Starting as Background Worker...")
+        run_background_worker()
+        
+        # Option 2: Uncomment below if you need health checks
+        # create_simple_health_endpoint()
+        # run_background_worker()
+    else:
+        # Local development
+        main_improved_fast()
+
