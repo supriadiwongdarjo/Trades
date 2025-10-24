@@ -13,6 +13,7 @@ from collections import deque
 from dotenv import load_dotenv
 import subprocess
 import io
+import threading
 
 # Load environment variables dari file .env
 load_dotenv()
@@ -2221,6 +2222,7 @@ if __name__ == "__main__":
 
     # Jalankan bot langsung di main process
     run_background_worker()
+
 
 
 
