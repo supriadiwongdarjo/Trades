@@ -233,7 +233,7 @@ def create_simple_health_endpoint():
         def run_flask():
             app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
         
-        flask_thread = threading.Thread(target=run_flask, daemon=True)
+        flask_thread = threading.Thread(target=run_flask, daemon=False)
         flask_thread.start()
         
     except ImportError:
@@ -2213,11 +2213,19 @@ def main():
     main_improved_fast()
 
 if __name__ == "__main__":
-    # Jalankan mode Web Service di Render
     print("🚀 Starting trading bot in Web Service mode...")
-    check_render_environment()          # Sesuaikan delay & konfigurasi Render
-    create_simple_health_endpoint()     # 👈 Ini yang bikin port terbuka
-    run_background_worker()             # Jalankan bot di thread terpisah
+    check_render_environment()
+
+    # Jalankan Flask (web health) di thread terpisah
+    def run_health():
+        create_simple_health_endpoint()
+
+    flask_thread = threading.Thread(target=run_health, daemon=False)
+    flask_thread.start()
+
+    # Jalankan bot utama di main thread
+    run_background_worker()
+
 
 
 
