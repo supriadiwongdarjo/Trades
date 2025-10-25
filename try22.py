@@ -69,19 +69,19 @@ SEND_TELEGRAM_NOTIFICATIONS = True
 
 # ==================== RATE LIMITING YANG AMAN ====================
 # Config untuk menghindari IP banned - LEBIH KONSERVATIF
-DELAY_BETWEEN_COINS = 3.0  # Increased from 1.2s to 3.0s
-DELAY_BETWEEN_REQUESTS = 2.0  # Increased from 0.5s to 2.0s
-DELAY_AFTER_ERROR = 10.0  # Increased from 3.0s to 10.0s
-DELAY_BETWEEN_SCANS = 30.0  # Delay antara scan cycle
-MAX_COINS_PER_SCAN = 20  # Batasi jumlah coin yang di-scan per cycle
+DELAY_BETWEEN_COINS = 1.5  # Increased from 1.2s to 3.0s
+DELAY_BETWEEN_REQUESTS = 0.5  # Increased from 0.5s to 2.0s
+DELAY_AFTER_ERROR = 3.0  # Increased from 3.0s to 10.0s
+DELAY_BETWEEN_SCANS = 5.0  # Delay antara scan cycle
+MAX_COINS_PER_SCAN = 50  # Batasi jumlah coin yang di-scan per cycle
 
 # Adjust for Render environment
 if os.environ.get('RENDER'):
-    DELAY_BETWEEN_COINS = 5.0
-    DELAY_BETWEEN_REQUESTS = 3.0
+    DELAY_BETWEEN_COINS = 2.0
+    DELAY_BETWEEN_REQUESTS = 5.0
     DELAY_AFTER_ERROR = 15.0
-    DELAY_BETWEEN_SCANS = 45.0
-    MAX_COINS_PER_SCAN = 15
+    DELAY_BETWEEN_SCANS = 5.0
+    MAX_COINS_PER_SCAN = 50
 
 # ==================== TELEGRAM CONTROL SYSTEM ====================
 TELEGRAM_CONTROL_ENABLED = True
@@ -98,10 +98,16 @@ BOT_STATE_FILE = 'bot_state1.json'
 
 # Coin List - DIPERSINGKAT untuk mengurangi request
 COINS = [
-    'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT',
-    'XRPUSDT', 'DOTUSDT', 'DOGEUSDT', 'AVAXUSDT', 'LINKUSDT',
-    'LTCUSDT', 'BCHUSDT', 'XLMUSDT', 'TRXUSDT', 'ETCUSDT',
-    'MATICUSDT', 'ATOMUSDT', 'FILUSDT', 'ALGOUSDT', 'XTZUSDT'
+    'PENGUUSDT','WALUSDT','MIRAUSDT','HEMIUSDT','PUMPUSDT','TRXUSDT','LTCUSDT','FFUSDT',
+    'SUIUSDT','ASTERUSDT','ZECUSDT','CAKEUSDT','BNBUSDT','AVNTUSDT','DOGEUSDT','ADAUSDT',
+    'XPLUSDT','XRPUSDT','DASHUSDT','SOLUSDT','LINKUSDT','AVAXUSDT', 'PEPEUSDT', 
+    'FORMUSDT', 'TRUMPUSDT', 'WIFUSDT', 'NEARUSDT', 'WBETHUSDT', 'SHIBUSDT',
+    '2ZUSDT', 'LINEAUSDT', 'APEUSDT', 'HBARUSDT', 'DOTUSDT', 'EULUSDT', 'HEIUSDT',  
+    'AAVEUSDT', 'ALICEUSDT', 'ENAUSDT', 'BATUSDT', 'HOLOUSDT', 'WLFIUSDT', 'POLUSDT',
+    'SNXUSDT', 'TRBUSDT', 'SOMIUSDT', 'ICPUSDT', 'ARPAUSDT', 'EDUUSDT', 'MAGICUSDT', 'OMUSDT',
+    'BELUSDT' , 'PHBUSDT', 'APTUSDT', 'DEGOUSDT', 'PROVEUSDT', 'YGGUSDT', 'AMPUSDT', 
+    'FTTUSDT', 'LAUSDT', 'SYRUPUSDT', 'AIUSDT', 'RSRUSDT', 'CYBERUSDT', 'OGUSDT', 'PAXGUSDT',
+    'AUDIOUSDT', 'ZKCUSDT', 'CTKUSDT', 'ACAUSDT', 'DEXEUSDT'
 ]
 
 # ==================== INISIALISASI VARIABEL GLOBAL ====================
@@ -306,12 +312,8 @@ def initialize_binance_client():
     """Initialize Binance client dengan error handling"""
     global client
     try:
-        # Tambahkan timeout dan retry configuration
-        client = Client(
-            API_KEY, 
-            API_SECRET,
-            {"timeout": 20, "verify": True, "retry_timeout": 10}
-        )
+        # ✅ PERBAIKAN: Hapus parameter yang tidak didukung
+        client = Client(API_KEY, API_SECRET)
         print("✅ Binance client initialized dengan proteksi IP")
         return True
     except Exception as e:
@@ -333,7 +335,7 @@ def safe_binance_request(func, *args, **kwargs):
     if not safe_request_delay():
         return None
     
-    max_retries = 3
+    max_retries = 2  # ✅ KURANGI retry untuk lebih aman
     for attempt in range(max_retries):
         try:
             result = func(*args, **kwargs)
@@ -452,10 +454,15 @@ def get_two_timeframe_data(symbol):
             return None, None
         
         print(f"   📊 Fetching data for {symbol}...")
-        data_15m = get_klines_data(symbol, Client.KLINE_INTERVAL_15MINUTE, 40)
-        time.sleep(DELAY_BETWEEN_REQUESTS)  # Delay antara timeframe
         
+        # ✅ TAMBAH DELAY LEBIH PANJANG
+        time.sleep(DELAY_BETWEEN_REQUESTS)
+        data_15m = get_klines_data(symbol, Client.KLINE_INTERVAL_15MINUTE, 40)
+        
+        time.sleep(DELAY_BETWEEN_REQUESTS)  # ✅ DELAY antara timeframe
         data_5m = get_klines_data(symbol, Client.KLINE_INTERVAL_5MINUTE, 40)
+        
+        # ... sisanya tetap sama
         
         # Validasi data
         if data_15m is None or data_5m is None:
@@ -845,4 +852,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
