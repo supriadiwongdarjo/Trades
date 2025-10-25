@@ -14,6 +14,45 @@ from dotenv import load_dotenv
 import subprocess
 import io
 import random
+from flask import Flask, jsonify
+import threading
+
+# ==================== FLASK APP UNTUK RENDER ====================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return jsonify({
+        "status": "Bot is running",
+        "timestamp": datetime.now().isoformat(),
+        "service": "Safe Trading Bot - Anti IP Banned"
+    })
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+
+@app.route('/status')
+def status():
+    global BOT_RUNNING, current_investment, ip_protection
+    return jsonify({
+        "bot_running": BOT_RUNNING,
+        "current_investment": current_investment,
+        "requests_today": ip_protection.get('total_requests_today', 0),
+        "banned_until": ip_protection.get('banned_until', 0)
+    })
+
+def run_flask_app():
+    """Jalankan Flask app untuk Render.com compatibility"""
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+
+def start_flask_server():
+    """Start Flask server dalam thread terpisah"""
+    flask_thread = threading.Thread(target=run_flask_app)
+    flask_thread.daemon = True
+    flask_thread.start()
+    print(f"✅ Flask server started on port {os.environ.get('PORT', 10000)}")
 
 # Load environment variables dari file .env
 load_dotenv()
@@ -843,14 +882,23 @@ def run_background_worker():
 
 # ==================== MAIN EXECUTION ====================
 def main():
+    # Start Flask server untuk Render.com
+    start_flask_server()
+    
+    # Tunggu sebentar untuk memastikan Flask sudah running
+    time.sleep(2)
+    
     if check_render_environment():
-        print("🚀 Starting on Render as Background Worker")
+        print("🚀 Starting on Render as Background Worker with Flask")
+        # Di Render, jalankan bot setelah Flask sudah ready
+        time.sleep(3)
         run_background_worker()
     else:
-        print("🚀 Starting Safe Trading Bot Locally")
+        print("🚀 Starting Safe Trading Bot Locally with Flask")
         main_safe_bot()
 
 if __name__ == "__main__":
     main()
+
 
 
