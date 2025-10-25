@@ -13,83 +13,22 @@ from collections import deque
 from dotenv import load_dotenv
 import subprocess
 import io
-import random
-# from flask import Flask, jsonify
-# import threading
-
-# # ==================== FLASK APP UNTUK RENDER ====================
-# app = Flask(__name__)
-
-# @app.route('/')
-# def home():
-#     return jsonify({
-#         "status": "Bot is running",
-#         "timestamp": datetime.now().isoformat(),
-#         "service": "Safe Trading Bot - Anti IP Banned"
-#     })
-
-# @app.route('/health')
-# def health():
-#     return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
-
-# @app.route('/status')
-# def status():
-#     global BOT_RUNNING, current_investment, ip_protection
-#     return jsonify({
-#         "bot_running": BOT_RUNNING,
-#         "current_investment": current_investment,
-#         "requests_today": ip_protection.get('total_requests_today', 0),
-#         "banned_until": ip_protection.get('banned_until', 0)
-#     })
-
-from flask import Flask, jsonify
 import threading
-
-app = Flask(__name__)
-
-# Health check yang sangat sederhana
-@app.route('/')
-def home():
-    return jsonify({
-        "status": "running",
-        "service": "Trading Bot",
-        "timestamp": datetime.now().isoformat()
-    })
-
-@app.route('/health')
-def health():
-    return jsonify({"status": "healthy"})
-
-def run_flask():
-    """Jalankan Flask di port yang ditentukan Render"""
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
-
-def run_flask_app():
-    """Jalankan Flask app untuk Render.com compatibility"""
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
-
-def start_flask_server():
-    """Start Flask server dalam thread terpisah"""
-    flask_thread = threading.Thread(target=run_flask_app)
-    flask_thread.daemon = True
-    flask_thread.start()
-    print(f"✅ Flask server started on port {os.environ.get('PORT', 10000)}")
+import re
 
 # Load environment variables dari file .env
 load_dotenv()
 warnings.filterwarnings('ignore')
 
-# ==================== KONFIGURASI AMAN UNTUK BINANCE ====================
+# ==================== KONFIGURASI ====================
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_API_SECRET')
 INITIAL_INVESTMENT = float(os.getenv('INITIAL_INVESTMENT', '5.5'))
 ORDER_RUN = os.getenv('ORDER_RUN', 'False').lower() == 'true'
 
-# Trading Parameters
-TAKE_PROFIT_PCT = 0.0070
-STOP_LOSS_PCT = 0.0170
+# Trading Parameters - SESUAI PERMINTAAN
+TAKE_PROFIT_PCT = 0.0062  # 0.62%
+STOP_LOSS_PCT = 0.0160    # 1.6%
 TRAILING_STOP_ACTIVATION = 0.0040
 TRAILING_STOP_PCT = 0.0080
 
@@ -98,52 +37,36 @@ POSITION_SIZING_PCT = 0.4
 MAX_DRAWDOWN_PCT = 0.6
 ADAPTIVE_CONFIDENCE = True
 
-# PARAMETER TIMEFRAME
+# PARAMETER TIMEFRAME - SESUAI PERMINTAAN
 # Untuk timeframe 15 menit (M15)
 RSI_MIN_15M = 35
 RSI_MAX_15M = 65
 EMA_SHORT_15M = 12
 EMA_LONG_15M = 26
-MACD_FAST_15M = 8
+MACD_FAST_15M = 7
 MACD_SLOW_15M = 21
 MACD_SIGNAL_15M = 7
 LRO_PERIOD_15M = 20
 VOLUME_PERIOD_15M = 15
 
-# Untuk timeframe 5 menit (M5)
+# Untuk timeframe 5 menit (M5) - SESUAI PERMINTAAN
 RSI_MIN_5M = 35
 RSI_MAX_5M = 68
 EMA_SHORT_5M = 5
 EMA_LONG_5M = 20
 MACD_FAST_5M = 8
 MACD_SLOW_5M = 21
-MACD_SIGNAL_5M = 8
+MACD_SIGNAL_5M = 8  # SESUAI PERMINTAAN
 LRO_PERIOD_5M = 20
 VOLUME_PERIOD_5M = 10
 
-# Parameter umum
+# Parameter umum - SESUAI PERMINTAAN
 VOLUME_RATIO_MIN = 0.8
 
 # Telegram Configuration
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 SEND_TELEGRAM_NOTIFICATIONS = True
-
-# ==================== RATE LIMITING YANG AMAN ====================
-# Config untuk menghindari IP banned - LEBIH KONSERVATIF
-DELAY_BETWEEN_COINS = 1.5  # Increased from 1.2s to 3.0s
-DELAY_BETWEEN_REQUESTS = 0.5  # Increased from 0.5s to 2.0s
-DELAY_AFTER_ERROR = 3.0  # Increased from 3.0s to 10.0s
-DELAY_BETWEEN_SCANS = 5.0  # Delay antara scan cycle
-MAX_COINS_PER_SCAN = 50  # Batasi jumlah coin yang di-scan per cycle
-
-# Adjust for Render environment
-if os.environ.get('RENDER'):
-    DELAY_BETWEEN_COINS = 2.0
-    DELAY_BETWEEN_REQUESTS = 5.0
-    DELAY_AFTER_ERROR = 15.0
-    DELAY_BETWEEN_SCANS = 5.0
-    MAX_COINS_PER_SCAN = 50
 
 # ==================== TELEGRAM CONTROL SYSTEM ====================
 TELEGRAM_CONTROL_ENABLED = True
@@ -158,7 +81,7 @@ LOG_FILE = 'trading_log1.txt'
 TRADE_HISTORY_FILE = 'trade_history1.json'
 BOT_STATE_FILE = 'bot_state1.json'
 
-# Coin List - DIPERSINGKAT untuk mengurangi request
+# Coin List - dipersingkat untuk testing
 COINS = [
     'PENGUUSDT','WALUSDT','MIRAUSDT','HEMIUSDT','PUMPUSDT','TRXUSDT','LTCUSDT','FFUSDT',
     'SUIUSDT','ASTERUSDT','ZECUSDT','CAKEUSDT','BNBUSDT','AVNTUSDT','DOGEUSDT','ADAUSDT',
@@ -179,16 +102,8 @@ buy_signals = []
 trade_history = []
 client = None
 twm = None
-
-# Sistem Proteksi IP
-ip_protection = {
-    'last_request_time': 0,
-    'request_count': 0,
-    'banned_until': 0,
-    'consecutive_errors': 0,
-    'total_requests_today': 0,
-    'daily_reset_time': time.time() + 86400  # 24 jam
-}
+websocket_restart_attempts = 0
+MAX_WEBSOCKET_RESTARTS = 3
 
 # Sistem Adaptasi
 market_state = {
@@ -226,82 +141,49 @@ EMA_ALPHA = 0.3
 MIN_POSITION_SIZING = 0.1  # Minimum 10%
 MAX_ADAPTATION_PERCENT = 0.25  # Maksimal perubahan 25%
 
-# ==================== SISTEM PROTEKSI IP BANNED ====================
-def safe_request_delay():
-    """Delay yang aman antara requests untuk menghindari banned"""
-    global ip_protection
-    
-    current_time = time.time()
-    
-    # Reset daily counter jika sudah 24 jam
-    if current_time > ip_protection['daily_reset_time']:
-        ip_protection['total_requests_today'] = 0
-        ip_protection['daily_reset_time'] = current_time + 86400
-        print("🔄 Daily request counter reset")
-    
-    # Cek jika IP sedang banned
-    if current_time < ip_protection['banned_until']:
-        remaining = ip_protection['banned_until'] - current_time
-        if remaining > 0:
-            print(f"🔴 IP Banned - Waiting {remaining:.0f}s")
-            time.sleep(min(remaining, 60))  # Max sleep 60 detik per check
-            return False
-    
-    # Rate limiting: max 1 request per 2 detik
-    time_since_last = current_time - ip_protection['last_request_time']
-    if time_since_last < DELAY_BETWEEN_REQUESTS:
-        sleep_time = DELAY_BETWEEN_REQUESTS - time_since_last
-        time.sleep(sleep_time)
-    
-    ip_protection['last_request_time'] = time.time()
-    ip_protection['request_count'] += 1
-    ip_protection['total_requests_today'] += 1
-    
-    # Jika terlalu banyak request hari ini, pause sementara
-    if ip_protection['total_requests_today'] > 5000:
-        print("⚠️ Daily request limit approaching, pausing for 1 hour")
-        ip_protection['banned_until'] = time.time() + 3600
-        return False
-    
-    return True
+# ==================== DELAY CONFIGURATION YANG DIPERBAIKI ====================
+# Konfigurasi delay untuk menghindari ban dari Binance - DITINGKATKAN
+DELAY_BETWEEN_COINS = 3.0  # Increased from 2.5 to 3.0 seconds
+DELAY_BETWEEN_REQUESTS = 1.5  # Increased from 1.0 to 1.5 seconds
+DELAY_AFTER_ERROR = 10.0  # Increased from 5.0 to 10.0 seconds
+DELAY_BETWEEN_SCANS = 20.0  # Increased from 10.0 to 20.0 seconds
+DELAY_WHEN_PAUSED = 10.0  # Increased from 5.0 to 10.0 seconds
 
-def handle_binance_error(error):
-    """Handle Binance API errors dengan proteksi IP"""
-    global ip_protection
-    
-    error_msg = str(error).lower()
-    
-    # Deteksi error yang berhubungan dengan banned
-    banned_keywords = ['banned', 'rate limit', 'too many', 'ip restricted', '429', '418']
-    
-    if any(keyword in error_msg for keyword in banned_keywords):
-        ip_protection['consecutive_errors'] += 1
-        ip_protection['banned_until'] = time.time() + (300 * ip_protection['consecutive_errors'])  # 5 menit per error
-        
-        ban_msg = f"🔴 IP BANNED DETECTED\nError: {error}\nRetry after: {datetime.fromtimestamp(ip_protection['banned_until']).strftime('%Y-%m-%d %H:%M:%S')}"
-        print(ban_msg)
-        
-        if SEND_TELEGRAM_NOTIFICATIONS:
-            send_telegram_message(ban_msg)
-        
-        return True
-    
-    # Reset consecutive errors jika bukan banned error
-    ip_protection['consecutive_errors'] = max(0, ip_protection['consecutive_errors'] - 1)
-    return False
+# Rate limiting
+LAST_REQUEST_TIME = 0
+MIN_REQUEST_INTERVAL = 2.0  # Increased from 1.0 to 2.0 seconds
 
+# Adjust for Render environment
+if os.environ.get('RENDER'):
+    DELAY_BETWEEN_COINS = 4.0
+    DELAY_BETWEEN_REQUESTS = 2.5
+    DELAY_BETWEEN_SCANS = 30.0
+    MIN_REQUEST_INTERVAL = 3.0
+
+# ==================== CUSTOM EXCEPTION CLASSES ====================
+class IPBannedException(Exception):
+    """Custom exception untuk IP banned dari Binance"""
+    def __init__(self, message, banned_until=None):
+        super().__init__(message)
+        self.banned_until = banned_until
+        self.message = message
+
+class WebSocketError(Exception):
+    """Custom exception untuk WebSocket errors"""
+    pass
+
+# ==================== FUNGSI UNTUK DEPLOY DI RENDER ====================
 def get_public_ip():
-    """Mendapatkan IP publik dengan rate limiting"""
-    if not safe_request_delay():
-        return None
-        
+    """Mendapatkan IP publik yang digunakan untuk deploy di Render"""
     try:
         print("🌐 Checking public IP address...")
         
+        # Coba beberapa services untuk mendapatkan IP
         services = [
             'https://api.ipify.org',
-            'https://ident.me', 
-            'https://checkip.amazonaws.com'
+            'https://ident.me',
+            'https://checkip.amazonaws.com',
+            'https://ipinfo.io/ip'
         ]
         
         for service in services:
@@ -309,18 +191,519 @@ def get_public_ip():
                 response = requests.get(service, timeout=10)
                 if response.status_code == 200:
                     ip = response.text.strip()
-                    print(f"✅ Public IP: {ip}")
+                    print(f"✅ Public IP: {ip} (from {service})")
+                    
+                    # Kirim IP ke Telegram untuk konfigurasi Binance
+                    if SEND_TELEGRAM_NOTIFICATIONS and TELEGRAM_BOT_TOKEN and ADMIN_CHAT_ID:
+                        ip_message = (
+                            f"🌐 <b>BOT DEPLOYMENT INFO</b>\n"
+                            f"Public IP: <code>{ip}</code>\n"
+                            f"⚠️ <b>Tambahkan IP ini ke whitelist Binance API</b>\n"
+                            f"1. Login ke Binance\n"
+                            f"2. API Management\n"
+                            f"3. Edit restrictions\n"
+                            f"4. Tambahkan: <code>{ip}</code>"
+                        )
+                        send_telegram_message(ip_message)
+                    
                     return ip
             except Exception as e:
+                print(f"❌ Failed to get IP from {service}: {e}")
                 continue
         
+        print("❌ Could not determine public IP")
         return None
         
     except Exception as e:
         print(f"❌ Error getting public IP: {e}")
         return None
 
+# ==================== RATE LIMITING SYSTEM YANG DIPERBAIKI ====================
+def rate_limit():
+    """Implement rate limiting yang lebih ketat untuk menghindari ban Binance"""
+    global LAST_REQUEST_TIME
+    current_time = time.time()
+    elapsed = current_time - LAST_REQUEST_TIME
+    
+    if elapsed < MIN_REQUEST_INTERVAL:
+        sleep_time = MIN_REQUEST_INTERVAL - elapsed
+        if sleep_time > 0:
+            print(f"⏳ Rate limiting: waiting {sleep_time:.2f}s")
+            time.sleep(sleep_time)
+    
+    LAST_REQUEST_TIME = time.time()
+
+def smart_delay(base_delay):
+    """Smart delay dengan variasi acak untuk menghindari pola request"""
+    jitter = base_delay * 0.2  # 20% jitter
+    actual_delay = base_delay + random.uniform(-jitter, jitter)
+    actual_delay = max(base_delay * 0.5, actual_delay)  # Minimal 50% dari base delay
+    time.sleep(actual_delay)
+
+# ==================== RENDER FIX - BACKGROUND WORKER ====================
+def run_background_worker():
+    """Run as background worker for Render - no web server needed"""
+    print("🔄 Running as Background Worker on Render...")
+    
+    # Get public IP for Binance whitelist
+    public_ip = get_public_ip()
+    
+    # Initialize and start the bot
+    main_improved_fast()
+
+def create_simple_health_endpoint():
+    """Create a simple health endpoint if running as web service"""
+    try:
+        from flask import Flask
+        import os
+        
+        app = Flask(__name__)
+        
+        @app.route('/')
+        def health_check():
+            return {
+                'status': 'running', 
+                'service': 'trading-bot',
+                'timestamp': datetime.now().isoformat()
+            }
+        
+        @app.route('/health')
+        def health():
+            return {'status': 'healthy'}
+        
+        port = int(os.environ.get('PORT', 5000))
+        print(f"🌐 Health endpoint running on port {port}")
+        
+        # Run in background thread to not block the bot
+        import threading
+        def run_flask():
+            app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+        
+        flask_thread = threading.Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        return True
+        
+    except ImportError:
+        print("⚠️ Flask not installed, running as pure background worker")
+        return False
+    except Exception as e:
+        print(f"⚠️ Health endpoint error: {e}")
+        return False
+
+def check_render_environment():
+    """Check if running on Render and adjust configuration accordingly"""
+    render_env = os.environ.get('RENDER', False)
+    if render_env:
+        print("🚀 Running on Render cloud platform")
+        # Adjust delays for Render environment
+        global DELAY_BETWEEN_COINS, DELAY_BETWEEN_REQUESTS, DELAY_BETWEEN_SCANS, MIN_REQUEST_INTERVAL
+        DELAY_BETWEEN_COINS = 4.0  # Increase delays for Render
+        DELAY_BETWEEN_REQUESTS = 2.5
+        DELAY_BETWEEN_SCANS = 30.0
+        MIN_REQUEST_INTERVAL = 3.0
+        print(f"🔧 Adjusted delays for Render environment")
+        return True
+    return False
+
+def check_binance_connection():
+    """Test koneksi ke Binance dengan IP yang terdeteksi"""
+    try:
+        print("🔗 Testing Binance connection...")
+        
+        # Test koneksi dasar
+        client.ping()
+        print("✅ Binance connection test: SUCCESS")
+        
+        # Test mendapatkan server time
+        server_time = client.get_server_time()
+        local_time = int(time.time() * 1000)
+        time_diff = server_time['serverTime'] - local_time
+        print(f"⏰ Server time difference: {time_diff} ms")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Binance connection test failed: {e}")
+        
+        # Cek jika ini IP banned error
+        if "IP banned" in str(e) or "WAY_TOO_MUCH_REQUEST" in str(e):
+            # Extract ban time dari error message
+            ban_match = re.search(r'IP banned until (\d+)', str(e))
+            if ban_match:
+                ban_until = int(ban_match.group(1))
+                ban_time = datetime.fromtimestamp(ban_until/1000).strftime('%Y-%m-%d %H:%M:%S')
+                error_msg = f"🔴 IP BANNED until {ban_time}"
+                print(error_msg)
+                if SEND_TELEGRAM_NOTIFICATIONS:
+                    send_telegram_message(f"🔴 <b>IP BANNED BY BINANCE</b>\nUntil: {ban_time}\nBot will wait until ban is lifted.")
+                raise IPBannedException(error_msg, ban_until)
+            else:
+                error_msg = "🔴 IP BANNED (unknown duration)"
+                print(error_msg)
+                if SEND_TELEGRAM_NOTIFICATIONS:
+                    send_telegram_message("🔴 <b>IP BANNED BY BINANCE</b>\nUnknown duration. Bot will wait 1 hour.")
+                raise IPBannedException(error_msg)
+        else:
+            # Kirim error ke Telegram untuk error lainnya
+            if SEND_TELEGRAM_NOTIFICATIONS:
+                error_msg = (
+                    f"🔴 <b>BINANCE CONNECTION FAILED</b>\n"
+                    f"Error: {str(e)}\n"
+                    f"⚠️ Pastikan:\n"
+                    f"• IP sudah di-whitelist di Binance\n"
+                    f"• API Key dan Secret benar\n"
+                    f"• Tidak ada IP restriction lain"
+                )
+                send_telegram_message(error_msg)
+        
+        return False
+
 # ==================== TELEGRAM & LOGGING ====================
+def load_config():
+    """Load configuration from file"""
+    default_config = {
+        'trading_params': {
+            'TAKE_PROFIT_PCT': 0.0062,  # 0.62%
+            'STOP_LOSS_PCT': 0.0160,     # 1.6%
+            'TRAILING_STOP_ACTIVATION': 0.0040,
+            'TRAILING_STOP_PCT': 0.0080,
+            'POSITION_SIZING_PCT': 0.4,
+            'MAX_DRAWDOWN_PCT': 0.6,
+            'ADAPTIVE_CONFIDENCE': True
+        },
+        'timeframe_params': {
+            'RSI_MIN_15M': 35,
+            'RSI_MAX_15M': 65,
+            'EMA_SHORT_15M': 12,
+            'EMA_LONG_15M': 26,
+            'MACD_FAST_15M': 7,
+            'MACD_SLOW_15M': 21,
+            'MACD_SIGNAL_15M': 7,
+            'LRO_PERIOD_15M': 20,
+            'VOLUME_PERIOD_15M': 15,
+            'RSI_MIN_5M': 35,
+            'RSI_MAX_5M': 68,
+            'EMA_SHORT_5M': 5,
+            'EMA_LONG_5M': 20,
+            'MACD_FAST_5M': 8,
+            'MACD_SLOW_5M': 21,
+            'MACD_SIGNAL_5M': 8,  # SESUAI PERMINTAAN
+            'LRO_PERIOD_5M': 20,
+            'VOLUME_PERIOD_5M': 10,
+            'VOLUME_RATIO_MIN': 0.8  # SESUAI PERMINTAAN
+        }
+    }
+    
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        else:
+            save_config(default_config)
+            return default_config
+    except Exception as e:
+        print(f"❌ Error loading config: {e}")
+        return default_config
+
+def save_config(config):
+    """Save configuration to file"""
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"❌ Error saving config: {e}")
+        return False
+
+def update_global_variables_from_config():
+    """Update global variables from config file"""
+    global TAKE_PROFIT_PCT, STOP_LOSS_PCT, TRAILING_STOP_ACTIVATION, TRAILING_STOP_PCT
+    global POSITION_SIZING_PCT, MAX_DRAWDOWN_PCT, ADAPTIVE_CONFIDENCE
+    global RSI_MIN_15M, RSI_MAX_15M, EMA_SHORT_15M, EMA_LONG_15M, MACD_FAST_15M, MACD_SLOW_15M, MACD_SIGNAL_15M
+    global LRO_PERIOD_15M, VOLUME_PERIOD_15M, RSI_MIN_5M, RSI_MAX_5M, EMA_SHORT_5M, EMA_LONG_5M
+    global MACD_FAST_5M, MACD_SLOW_5M, MACD_SIGNAL_5M, LRO_PERIOD_5M, VOLUME_PERIOD_5M, VOLUME_RATIO_MIN
+    
+    config = load_config()
+    trading_params = config['trading_params']
+    timeframe_params = config['timeframe_params']
+    
+    # Update trading parameters
+    TAKE_PROFIT_PCT = trading_params['TAKE_PROFIT_PCT']
+    STOP_LOSS_PCT = trading_params['STOP_LOSS_PCT']
+    TRAILING_STOP_ACTIVATION = trading_params['TRAILING_STOP_ACTIVATION']
+    TRAILING_STOP_PCT = trading_params['TRAILING_STOP_PCT']
+    POSITION_SIZING_PCT = trading_params['POSITION_SIZING_PCT']
+    MAX_DRAWDOWN_PCT = trading_params['MAX_DRAWDOWN_PCT']
+    ADAPTIVE_CONFIDENCE = trading_params['ADAPTIVE_CONFIDENCE']
+    
+    # Update timeframe parameters
+    RSI_MIN_15M = timeframe_params['RSI_MIN_15M']
+    RSI_MAX_15M = timeframe_params['RSI_MAX_15M']
+    EMA_SHORT_15M = timeframe_params['EMA_SHORT_15M']
+    EMA_LONG_15M = timeframe_params['EMA_LONG_15M']
+    MACD_FAST_15M = timeframe_params['MACD_FAST_15M']
+    MACD_SLOW_15M = timeframe_params['MACD_SLOW_15M']
+    MACD_SIGNAL_15M = timeframe_params['MACD_SIGNAL_15M']
+    LRO_PERIOD_15M = timeframe_params['LRO_PERIOD_15M']
+    VOLUME_PERIOD_15M = timeframe_params['VOLUME_PERIOD_15M']
+    RSI_MIN_5M = timeframe_params['RSI_MIN_5M']
+    RSI_MAX_5M = timeframe_params['RSI_MAX_5M']
+    EMA_SHORT_5M = timeframe_params['EMA_SHORT_5M']
+    EMA_LONG_5M = timeframe_params['EMA_LONG_5M']
+    MACD_FAST_5M = timeframe_params['MACD_FAST_5M']
+    MACD_SLOW_5M = timeframe_params['MACD_SLOW_5M']
+    MACD_SIGNAL_5M = timeframe_params['MACD_SIGNAL_5M']
+    LRO_PERIOD_5M = timeframe_params['LRO_PERIOD_5M']
+    VOLUME_PERIOD_5M = timeframe_params['VOLUME_PERIOD_5M']
+    VOLUME_RATIO_MIN = timeframe_params['VOLUME_RATIO_MIN']
+
+def handle_telegram_command():
+    """Check for Telegram commands and execute them"""
+    global BOT_RUNNING, active_position
+    
+    try:
+        # Get updates from Telegram bot
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data['ok'] and data['result']:
+                for update in data['result']:
+                    if 'message' in update and 'text' in update['message']:
+                        message = update['message']['text']
+                        chat_id = update['message']['chat']['id']
+                        
+                        # Only process commands from admin
+                        if str(chat_id) != ADMIN_CHAT_ID:
+                            continue
+                            
+                        # Process commands
+                        if message.startswith('/'):
+                            process_telegram_command(message, chat_id, update['update_id'])
+                            
+    except Exception as e:
+        print(f"❌ Telegram command error: {e}")
+
+def process_telegram_command(command, chat_id, update_id):
+    """Process individual Telegram commands"""
+    global BOT_RUNNING, active_position
+    
+    try:
+        if command == '/start':
+            if not BOT_RUNNING:
+                BOT_RUNNING = True
+                send_telegram_message("🤖 <b>BOT DIAKTIFKAN</b>\nBot trading sekarang berjalan.")
+                print("✅ Bot started via Telegram command")
+            else:
+                send_telegram_message("⚠️ Bot sudah berjalan.")
+                
+        elif command == '/stop':
+            if BOT_RUNNING:
+                BOT_RUNNING = False
+                # Stop WebSocket monitoring
+                stop_websocket_monitoring()
+                send_telegram_message("🛑 <b>BOT DIHENTIKAN</b>\nTrading dihentikan.")
+                print("🛑 Bot stopped via Telegram command")
+            else:
+                send_telegram_message("⚠️ Bot sudah dalam keadaan berhenti.")
+                
+        elif command == '/status':
+            send_bot_status(chat_id)
+            
+        elif command == '/log':
+            send_log_file(chat_id)
+            
+        elif command == '/config':
+            send_current_config(chat_id)
+            
+        elif command.startswith('/set '):
+            if not BOT_RUNNING:
+                handle_config_change(command, chat_id)
+            else:
+                send_telegram_message("❌ <b>BOT MASIH BERJALAN</b>\nHentikan bot terlebih dahulu dengan /stop sebelum mengubah konfigurasi.")
+                
+        elif command == '/help':
+            send_help_message(chat_id)
+            
+        elif command == '/ip':
+            # Perintah untuk mendapatkan IP saat ini
+            current_ip = get_public_ip()
+            if current_ip:
+                send_telegram_message(f"🌐 <b>CURRENT PUBLIC IP</b>\n<code>{current_ip}</code>")
+            
+        # Mark update as processed
+        mark_update_processed(update_id)
+        
+    except Exception as e:
+        send_telegram_message(f"❌ <b>ERROR PROCESSING COMMAND</b>\n{str(e)}")
+
+def send_bot_status(chat_id):
+    """Send current bot status"""
+    global BOT_RUNNING, active_position, current_investment, trade_history, performance_state
+    
+    status_msg = (
+        f"🤖 <b>BOT STATUS</b>\n"
+        f"┌────────────────────────────┐\n"
+        f"│ Status: {'🟢 BERJALAN' if BOT_RUNNING else '🔴 BERHENTI'}\n"
+        f"│ Modal: ${current_investment:.2f}\n"
+        f"│ Total Trade: {len(trade_history)}\n"
+        f"│ Win Rate: {calculate_winrate():.1f}%\n"
+    )
+    
+    if active_position:
+        current_price = get_current_price(active_position['symbol'])
+        if current_price:
+            pnl_pct = (current_price - active_position['entry_price']) / active_position['entry_price'] * 100
+            status_msg += f"│ Posisi Aktif: {active_position['symbol']}\n"
+            status_msg += f"│ PnL: {pnl_pct:+.2f}%\n"
+        else:
+            status_msg += f"│ Posisi Aktif: {active_position['symbol']}\n"
+            status_msg += f"│ PnL: Menunggu data...\n"
+    else:
+        status_msg += "│ Posisi Aktif: Tidak ada\n"
+        
+    status_msg += (
+        f"│ Loss Streak: {performance_state.get('loss_streak', 0)}\n"
+        f"│ Win Streak: {performance_state.get('win_streak', 0)}\n"
+        f"└────────────────────────────┘"
+    )
+    
+    send_telegram_message(status_msg)
+
+def send_log_file(chat_id):
+    """Send log file to Telegram"""
+    try:
+        if os.path.exists(LOG_FILE):
+            # Read last 100 lines of log file
+            with open(LOG_FILE, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                last_lines = lines[-100:]  # Last 100 lines
+                log_content = ''.join(last_lines)
+            
+            if len(log_content) > 4000:
+                log_content = log_content[-4000:]  # Trim if too long
+                
+            send_telegram_message(f"📋 <b>LOG TERAKHIR</b>\n<pre>{log_content}</pre>")
+        else:
+            send_telegram_message("❌ File log tidak ditemukan.")
+    except Exception as e:
+        send_telegram_message(f"❌ Error membaca log: {str(e)}")
+
+def send_current_config(chat_id):
+    """Send current configuration"""
+    config = load_config()
+    trading_params = config['trading_params']
+    timeframe_params = config['timeframe_params']
+    
+    config_msg = (
+        f"⚙️ <b>KONFIGURASI SAAT INI</b>\n"
+        f"┌────────────────────────────┐\n"
+        f"│ <b>TRADING PARAMS</b>\n"
+        f"│ TP: {trading_params['TAKE_PROFIT_PCT']*100:.2f}%\n"
+        f"│ SL: {trading_params['STOP_LOSS_PCT']*100:.2f}%\n"
+        f"│ Position: {trading_params['POSITION_SIZING_PCT']*100:.1f}%\n"
+        f"│ Trailing Act: {trading_params['TRAILING_STOP_ACTIVATION']*100:.2f}%\n"
+        f"│ Trailing SL: {trading_params['TRAILING_STOP_PCT']*100:.2f}%\n"
+        f"├────────────────────────────┤\n"
+        f"│ <b>M15 PARAMS</b>\n"
+        f"│ RSI: {timeframe_params['RSI_MIN_15M']}-{timeframe_params['RSI_MAX_15M']}\n"
+        f"│ EMA: {timeframe_params['EMA_SHORT_15M']}/{timeframe_params['EMA_LONG_15M']}\n"
+        f"│ MACD: {timeframe_params['MACD_FAST_15M']}/{timeframe_params['MACD_SLOW_15M']}/{timeframe_params['MACD_SIGNAL_15M']}\n"
+        f"├────────────────────────────┤\n"
+        f"│ <b>M5 PARAMS</b>\n"
+        f"│ RSI: {timeframe_params['RSI_MIN_5M']}-{timeframe_params['RSI_MAX_5M']}\n"
+        f"│ EMA: {timeframe_params['EMA_SHORT_5M']}/{timeframe_params['EMA_LONG_5M']}\n"
+        f"│ MACD: {timeframe_params['MACD_FAST_5M']}/{timeframe_params['MACD_SLOW_5M']}/{timeframe_params['MACD_SIGNAL_5M']}\n"
+        f"└────────────────────────────┘\n"
+        f"Gunakan /help untuk melihat cara mengubah konfigurasi."
+    )
+    
+    send_telegram_message(config_msg)
+
+def handle_config_change(command, chat_id):
+    """Handle configuration changes via Telegram"""
+    try:
+        parts = command.split()
+        if len(parts) < 3:
+            send_telegram_message("❌ Format: /set [parameter] [value]")
+            return
+            
+        param_name = parts[1]
+        param_value = ' '.join(parts[2:])
+        
+        config = load_config()
+        updated = False
+        
+        # Check trading parameters
+        if param_name in config['trading_params']:
+            old_value = config['trading_params'][param_name]
+            # Convert value to appropriate type
+            if isinstance(old_value, bool):
+                config['trading_params'][param_name] = param_value.lower() in ('true', '1', 'yes', 'y')
+            elif isinstance(old_value, float):
+                config['trading_params'][param_name] = float(param_value)
+            elif isinstance(old_value, int):
+                config['trading_params'][param_name] = int(param_value)
+            updated = True
+            
+        # Check timeframe parameters  
+        elif param_name in config['timeframe_params']:
+            old_value = config['timeframe_params'][param_name]
+            if isinstance(old_value, int):
+                config['timeframe_params'][param_name] = int(param_value)
+            elif isinstance(old_value, float):
+                config['timeframe_params'][param_name] = float(param_value)
+            updated = True
+            
+        if updated:
+            if save_config(config):
+                update_global_variables_from_config()
+                send_telegram_message(f"✅ <b>KONFIGURASI DIPERBARUI</b>\n{param_name} = {param_value}")
+            else:
+                send_telegram_message("❌ Gagal menyimpan konfigurasi.")
+        else:
+            send_telegram_message(f"❌ Parameter '{param_name}' tidak ditemukan.")
+            
+    except ValueError:
+        send_telegram_message("❌ Format nilai tidak valid.")
+    except Exception as e:
+        send_telegram_message(f"❌ Error: {str(e)}")
+
+def send_help_message(chat_id):
+    """Send help message with available commands"""
+    help_msg = (
+        f"📖 <b>BOT TRADING COMMANDS</b>\n"
+        f"┌────────────────────────────┐\n"
+        f"│ /start - Mulai bot trading\n"
+        f"│ /stop - Hentikan bot\n"
+        f"│ /status - Status bot saat ini\n"
+        f"│ /log - Tampilkan log terakhir\n"
+        f"│ /config - Tampilkan konfigurasi\n"
+        f"│ /help - Tampilkan pesan bantuan\n"
+        f"│ /ip - Tampilkan IP publik\n"
+        f"├────────────────────────────┤\n"
+        f"│ <b>UBAH KONFIGURASI</b>\n"
+        f"│ /set [param] [value]\n"
+        f"│ Contoh:\n"
+        f"│ /set TAKE_PROFIT_PCT 0.008\n"
+        f"│ /set RSI_MIN_15M 35\n"
+        f"│ /set POSITION_SIZING_PCT 0.3\n"
+        f"└────────────────────────────┘\n"
+        f"<i>Hanya bisa diubah saat bot berhenti</i>"
+    )
+    
+    send_telegram_message(help_msg)
+
+def mark_update_processed(update_id):
+    """Mark Telegram update as processed"""
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+        params = {'offset': update_id + 1}
+        requests.get(url, params=params, timeout=5)
+    except:
+        pass
+
 def send_telegram_message(message):
     """Send notification to Telegram dengan improved error handling"""
     if not SEND_TELEGRAM_NOTIFICATIONS:
@@ -346,104 +729,557 @@ def send_telegram_message(message):
 def write_log(entry):
     """Write trading log to file"""
     try:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_entry = f"[{timestamp}] {entry}"
         with open(LOG_FILE, 'a', encoding='utf-8') as f:
-            f.write(entry + '\n')
+            f.write(log_entry + '\n')
+        print(log_entry)
     except Exception as e:
         print(f"❌ Error writing to log file: {e}")
 
 def initialize_logging():
-    """Initialize log file dengan info proteksi IP"""
+    """Initialize log file with header"""
     try:
         if not os.path.exists(LOG_FILE):
             with open(LOG_FILE, 'w', encoding='utf-8') as f:
                 f.write("=" * 80 + '\n')
-                f.write("🚀 SAFE TRADING BOT - ANTI IP BANNED VERSION\n")
+                f.write("🚀 ADVANCED TRADING BOT - 2TF (M15 + M5) + LRO STRATEGY\n")
                 f.write("=" * 80 + '\n')
                 f.write(f"Bot Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"Initial Capital: ${INITIAL_INVESTMENT}\n")
-                f.write(f"Rate Limits: {DELAY_BETWEEN_REQUESTS}s between requests\n")
-                f.write(f"Max Coins/Scan: {MAX_COINS_PER_SCAN}\n")
+                f.write(f"TP: +{TAKE_PROFIT_PCT*100}% | SL: -{STOP_LOSS_PCT*100}%\n")
+                f.write(f"Position Sizing: {POSITION_SIZING_PCT*100}%\n")
                 f.write(f"Monitoring: {len(COINS)} coins\n")
+                f.write("Timeframes: M15 + M5 dengan LRO\n")
                 f.write("=" * 80 + '\n\n')
             print(f"✅ Log file initialized: {LOG_FILE}")
     except Exception as e:
         print(f"❌ Error initializing log file: {e}")
 
-# ==================== BINANCE UTILITIES DENGAN PROTEKSI ====================
+def log_position_closed(symbol, entry_price, exit_price, quantity, exit_type):
+    """Log when position is closed dengan integrated feedback loop"""
+    global current_investment, trade_history
+    
+    try:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        pnl = (exit_price - entry_price) * quantity
+        pnl_pct = ((exit_price - entry_price) / entry_price) * 100
+        
+        current_investment += pnl
+        
+        # Add to trade history
+        trade_record = {
+            'timestamp': timestamp,
+            'symbol': symbol,
+            'entry_price': entry_price,
+            'exit_price': exit_price,
+            'quantity': quantity,
+            'pnl': pnl,
+            'pnl_pct': pnl_pct,
+            'exit_type': exit_type,
+            'capital_after': current_investment
+        }
+        trade_history.append(trade_record)
+        
+        # Update recent trades untuk feedback system
+        recent_trades.append(pnl_pct)
+        
+        # Update dynamic threshold (existing system)
+        update_dynamic_threshold()
+        
+        # TRIGGER FEEDBACK LOOP - sistem adaptasi baru
+        trade_performance_feedback_loop()
+        
+        save_trade_history()
+        
+        # Calculate winrate
+        winrate = calculate_winrate()
+        total_trades = len(trade_history)
+        
+        log_entry = (f"📉 POSITION CLOSED | {symbol} | "
+                    f"Exit: {exit_type} | Entry: ${entry_price:.6f} | Exit: ${exit_price:.6f} | "
+                    f"PnL: ${pnl:.4f} ({pnl_pct:+.2f}%) | New Capital: ${current_investment:.2f}")
+        
+        write_log(log_entry)
+        
+        telegram_msg = (f"📉 <b>POSITION CLOSED - {exit_type}</b>\n"
+                      f"┌────────────────────────────┐\n"
+                      f"│ <b>{symbol}</b>\n"
+                      f"├────────────────────────────┤\n"
+                      f"│ Entry:    ${entry_price:.6f}\n"
+                      f"│ Exit:     ${exit_price:.6f}\n"
+                      f"│ PnL:      <b>{pnl_pct:+.2f}%</b>\n"
+                      f"│ Amount:   ${pnl:.4f}\n"
+                      f"│ New Capital: <b>${current_investment:.2f}</b>\n"
+                      f"├────────────────────────────┤\n"
+                      f"│ Win Rate:  {winrate:.1f}% ({total_trades} trades)\n"
+                      f"│ Loss Streak: {performance_state['loss_streak']}\n"
+                      f"└────────────────────────────┘")
+        
+        send_telegram_message(telegram_msg)
+        
+        # HENTIKAN WEBSOCKET SETELAH SELL
+        stop_websocket_monitoring()
+        
+    except Exception as e:
+        print(f"❌ Error logging position close: {e}")
+
+def log_position_opened(symbol, entry_price, quantity, take_profit, stop_loss, confidence):
+    """Log when position is opened"""
+    try:
+        tp_pct = ((take_profit - entry_price) / entry_price) * 100
+        sl_pct = ((entry_price - stop_loss) / entry_price) * 100
+        
+        log_entry = (f"📈 POSITION OPENED | {symbol} | "
+                    f"Entry: ${entry_price:.6f} | Qty: {quantity:.6f} | "
+                    f"TP: ${take_profit:.6f} (+{tp_pct:.2f}%) | SL: ${stop_loss:.6f} (-{sl_pct:.2f}%) | "
+                    f"Confidence: {confidence:.1f}% | Capital: ${current_investment:.2f}")
+        
+        write_log(log_entry)
+        
+        telegram_msg = (f"📈 <b>POSITION OPENED</b>\n"
+                      f"┌────────────────────────────┐\n"
+                      f"│ <b>{symbol}</b>\n"
+                      f"├────────────────────────────┤\n"
+                      f"│ Entry:      ${entry_price:.6f}\n"
+                      f"│ Quantity:   {quantity:.6f}\n"
+                      f"│ Take Profit: ${take_profit:.6f} (+{TAKE_PROFIT_PCT*100:.2f}%)\n"
+                      f"│ Stop Loss:   ${stop_loss:.6f} (-{STOP_LOSS_PCT*100:.2f}%)\n"
+                      f"│ Confidence:  {confidence:.1f}%\n"
+                      f"│ Capital:     <b>${current_investment:.2f}</b>\n"
+                      f"└────────────────────────────┘")
+        
+        send_telegram_message(telegram_msg)
+        
+    except Exception as e:
+        print(f"❌ Error logging position open: {e}")
+
+# ==================== MANAJEMEN DATA ====================
+def load_trade_history():
+    """Load trade history from file"""
+    global trade_history
+    try:
+        if os.path.exists(TRADE_HISTORY_FILE):
+            with open(TRADE_HISTORY_FILE, 'r') as f:
+                trade_history = json.load(f)
+            print(f"✅ Loaded {len(trade_history)} previous trades")
+    except Exception as e:
+        print(f"❌ Error loading trade history: {e}")
+        trade_history = []
+
+def save_trade_history():
+    """Save trade history to file"""
+    try:
+        with open(TRADE_HISTORY_FILE, 'w') as f:
+            json.dump(trade_history, f, indent=2)
+    except Exception as e:
+        print(f"❌ Error saving trade history: {e}")
+
+def calculate_winrate():
+    """Calculate winrate from trade history"""
+    if not trade_history:
+        return 0.0
+    
+    wins = sum(1 for trade in trade_history if trade.get('pnl_pct', 0) > 0)
+    return (wins / len(trade_history)) * 100
+
+def load_bot_state():
+    """Load bot state termasuk performance data"""
+    global coin_performance, dynamic_threshold, recent_trades, failed_coins, performance_state
+    
+    try:
+        if os.path.exists(BOT_STATE_FILE):
+            with open(BOT_STATE_FILE, 'r') as f:
+                state = json.load(f)
+                
+            coin_performance = state.get('coin_performance', {})
+            dynamic_threshold = max(30, state.get('dynamic_threshold', 30))  # MINIMAL 30
+            recent_trades = deque(state.get('recent_trades', []), maxlen=10)
+            performance_state = state.get('performance_state', performance_state)
+            
+            # Clean old failed coins (older than 24 hours)
+            current_time = time.time()
+            failed_coins = {
+                coin: timestamp for coin, timestamp in state.get('failed_coins', {}).items()
+                if current_time - timestamp < 86400
+            }
+            
+            print(f"✅ Loaded bot state: threshold: {dynamic_threshold}, loss_streak: {performance_state.get('loss_streak', 0)}")
+    except Exception as e:
+        print(f"❌ Error loading bot state: {e}")
+
+def save_bot_state():
+    """Save bot state termasuk performance data"""
+    try:
+        state = {
+            'coin_performance': coin_performance,
+            'dynamic_threshold': dynamic_threshold,
+            'recent_trades': list(recent_trades),
+            'failed_coins': failed_coins,
+            'performance_state': performance_state,
+            'last_update': time.time()
+        }
+        
+        with open(BOT_STATE_FILE, 'w') as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        print(f"❌ Error saving bot state: {e}")
+
+def update_dynamic_threshold():
+    """Update confidence threshold based on recent performance"""
+    global dynamic_threshold
+    
+    if len(recent_trades) < 5:
+        return
+    
+    wins = sum(1 for trade in recent_trades if trade > 0)
+    winrate = wins / len(recent_trades)
+    
+    if winrate < 0.5:
+        dynamic_threshold = min(40, dynamic_threshold + 2)  # Boleh naik sampai 50
+        print(f"📊 Winrate rendah ({winrate:.1%}), naikkan threshold ke {dynamic_threshold}")
+    elif winrate > 0.7:
+        # TIDAK BOLEH TURUN DI BAWAH 30
+        dynamic_threshold = max(30, dynamic_threshold - 1)  # MINIMAL 30
+        print(f"📊 Winrate tinggi ({winrate:.1%}), turunkan threshold ke {dynamic_threshold}")
+
+# ==================== BINANCE UTILITIES YANG DIPERBAIKI ====================
+def trade_performance_feedback_loop():
+    """Adaptive feedback loop - panggil setelah trade ditutup atau periodik"""
+    global recent_trades, performance_state, dynamic_threshold, POSITION_SIZING_PCT, current_investment
+
+    try:
+        now = time.time()
+        
+        # Skip jika belum ada trade yang cukup
+        if len(recent_trades) < 2:
+            return
+
+        # Collect recent PnL%
+        recent = list(recent_trades)
+        
+        # Compute metrics
+        wins = sum(1 for v in recent if v > 0)
+        losses = sum(1 for v in recent if v <= 0)
+        rolling_winrate = wins / len(recent) if recent else 0
+        avg_pnl = sum(recent) / len(recent) if recent else 0
+
+        # Update EMA PnL
+        ema_prev = performance_state.get('ema_pnl', 0.0)
+        ema_new = EMA_ALPHA * avg_pnl + (1 - EMA_ALPHA) * ema_prev
+        performance_state['ema_pnl'] = ema_new
+
+        # Update streaks dari trade_history
+        if trade_history:
+            loss_streak = 0
+            win_streak = 0
+            
+            # Check last 5 trades untuk streak
+            for trade in reversed(trade_history[-5:]):
+                pnl_pct = trade.get('pnl_pct', 0)
+                if pnl_pct <= 0:
+                    if win_streak == 0:
+                        loss_streak += 1
+                    else:
+                        break
+                else:
+                    if loss_streak == 0:
+                        win_streak += 1
+                    else:
+                        break
+            
+            performance_state['loss_streak'] = loss_streak
+            performance_state['win_streak'] = win_streak
+            performance_state['total_trades'] = len(trade_history)
+            performance_state['total_wins'] = wins
+
+        # Log metrics
+        print(f"[FEEDBACK] Winrate: {rolling_winrate:.1%}, Avg PnL: {avg_pnl:.3f}%, EMA: {ema_new:.3f}%, Loss Streak: {performance_state['loss_streak']}")
+
+        # RULE 1: Loss Streak Adaptation
+        if (performance_state['loss_streak'] >= LOSS_STREAK_LIMIT and 
+            now - performance_state.get('last_adaptation_time', 0) > 120):
+            
+            old_threshold = dynamic_threshold
+            old_position_size = POSITION_SIZING_PCT
+            
+            # Naikkan threshold - BOLEH NAIK TANPA BATAS ATAS
+            dynamic_threshold = dynamic_threshold + LOSS_STREAK_THRESHOLD_INCREASE
+            
+            # Turunkan position size (tapi jangan kurang dari minimum)
+            new_pos_size = max(MIN_POSITION_SIZING, POSITION_SIZING_PCT * LOSS_STREAK_POSITION_SIZER_MULT)
+            max_allowed_reduction = POSITION_SIZING_PCT * (1 - MAX_ADAPTATION_PERCENT)
+            POSITION_SIZING_PCT = max(new_pos_size, max_allowed_reduction)
+            
+            # Set pause dan update waktu adaptasi
+            performance_state['paused_until'] = now + LOSS_STREAK_COOLDOWN
+            performance_state['last_adaptation_time'] = now
+
+            # Kirim notifikasi
+            adaptation_msg = (
+                f"⚠️ <b>ADAPTATION TRIGGERED - LOSS STREAK</b>\n"
+                f"Loss Streak: {performance_state['loss_streak']}\n"
+                f"Threshold: {old_threshold} → {dynamic_threshold}\n"
+                f"Position Size: {old_position_size:.1%} → {POSITION_SIZING_PCT:.1%}\n"
+                f"Cooldown: {LOSS_STREAK_COOLDOWN//60} menit"
+            )
+            send_telegram_message(adaptation_msg)
+            write_log(f"[ADAPTATION] Loss streak {performance_state['loss_streak']} -> threshold {old_threshold}->{dynamic_threshold}, position {old_position_size:.3f}->{POSITION_SIZING_PCT:.3f}")
+
+        # RULE 2: Win Streak Reward
+        if performance_state.get('win_streak', 0) < WIN_STREAK_LIMIT:
+            performance_state['reward_triggered'] = False
+
+        elif (performance_state['win_streak'] >= WIN_STREAK_LIMIT and 
+              now - performance_state.get('last_adaptation_time', 0) > 120) and not performance_state.get('reward_triggered', False):
+            
+            old_threshold = dynamic_threshold
+            old_position_size = POSITION_SIZING_PCT
+            
+            # Turunkan threshold - TIDAK BOLEH TURUN DI BAWAH 30
+            dynamic_threshold = max(30, dynamic_threshold - WIN_STREAK_THRESHOLD_DECREASE)
+            
+            # Naikkan position size (tapi hati-hati)
+            new_pos_size = min(0.6, POSITION_SIZING_PCT * 1.15)  # Maksimal 60%
+            max_allowed_increase = POSITION_SIZING_PCT * (1 + MAX_ADAPTATION_PERCENT)
+            POSITION_SIZING_PCT = min(new_pos_size, max_allowed_increase)
+            
+            performance_state['last_adaptation_time'] = now
+            performance_state['reward_triggered'] = True
+
+            # Kirim notifikasi positif
+            reward_msg = (
+                f"✅ <b>PERFORMANCE REWARD - WIN STREAK</b>\n"
+                f"Win Streak: {performance_state['win_streak']}\n"
+                f"Threshold: {old_threshold} → {dynamic_threshold}\n"
+                f"Position Size: {old_position_size:.1%} → {POSITION_SIZING_PCT:.1%}"
+            )
+            send_telegram_message(reward_msg)
+            write_log(f"[REWARD] Win streak {performance_state['win_streak']} -> threshold {old_threshold}->{dynamic_threshold}, position {old_position_size:.3f}->{POSITION_SIZING_PCT:.3f}")
+
+        # RULE 3: Very Poor Performance Emergency Stop
+        if (len(recent_trades) >= 5 and rolling_winrate < 0.2 and 
+            now - performance_state.get('last_adaptation_time', 0) > 300):
+            
+            performance_state['paused_until'] = now + 1800  # 30 menit
+            emergency_msg = (
+                f"🛑 <b>EMERGENCY STOP - POOR PERFORMANCE</b>\n"
+                f"Win Rate: {rolling_winrate:.1%}\n"
+                f"Avg PnL: {avg_pnl:.3f}%\n"
+                f"Bot paused for 30 minutes"
+            )
+            send_telegram_message(emergency_msg)
+            write_log(f"[EMERGENCY] Poor performance - winrate {rolling_winrate:.1%} -> paused 30min")
+
+        # Save state
+        save_bot_state()
+
+    except Exception as e:
+        print(f"❌ Feedback loop error: {e}")
+
+def is_trading_paused():
+    """Cek apakah trading sedang dipause karena poor performance"""
+    global performance_state
+    
+    now = time.time()
+    paused_until = performance_state.get('paused_until', 0)
+    
+    if now < paused_until:
+        remaining = paused_until - now
+        if remaining > 60:  # Only log if more than 1 minute remaining
+            print(f"🔒 Trading paused due to performance. Resuming in {int(remaining/60)} minutes")
+        return True
+    
+    return False
+
 def initialize_binance_client():
-    """Initialize Binance client dengan error handling"""
+    """Initialize Binance client dengan error handling yang lebih baik"""
     global client
     try:
-        # ✅ PERBAIKAN: Hapus parameter yang tidak didukung
-        client = Client(API_KEY, API_SECRET)
-        print("✅ Binance client initialized dengan proteksi IP")
+        client = Client(API_KEY, API_SECRET, {"timeout": 30})
+        print("✅ Binance client initialized")
+        
+        # Test koneksi
+        client.ping()
+        print("✅ Binance connection test successful")
         return True
+        
     except Exception as e:
         print(f"❌ Failed to initialize Binance client: {e}")
+        
+        # Cek jika ini IP banned error
+        if "IP banned" in str(e) or "WAY_TOO_MUCH_REQUEST" in str(e):
+            # Extract ban time dari error message
+            ban_match = re.search(r'IP banned until (\d+)', str(e))
+            if ban_match:
+                ban_until = int(ban_match.group(1))
+                ban_time = datetime.fromtimestamp(ban_until/1000).strftime('%Y-%m-%d %H:%M:%S')
+                error_msg = f"🔴 IP BANNED until {ban_time}"
+                print(error_msg)
+                if SEND_TELEGRAM_NOTIFICATIONS:
+                    send_telegram_message(f"🔴 <b>IP BANNED BY BINANCE</b>\nUntil: {ban_time}\nBot will wait until ban is lifted.")
+                raise IPBannedException(error_msg, ban_until)
+            else:
+                error_msg = "🔴 IP BANNED (unknown duration)"
+                print(error_msg)
+                if SEND_TELEGRAM_NOTIFICATIONS:
+                    send_telegram_message("🔴 <b>IP BANNED BY BINANCE</b>\nUnknown duration. Bot will wait 1 hour.")
+                raise IPBannedException(error_msg)
+        else:
+            # Untuk error lainnya, tidak perlu jeda panjang
+            error_msg = f"❌ Binance initialization failed: {str(e)}"
+            print(error_msg)
+            if SEND_TELEGRAM_NOTIFICATIONS:
+                send_telegram_message(f"🔴 <b>BINANCE INIT FAILED</b>\n{error_msg}")
+        
         return False
 
-def safe_binance_request(func, *args, **kwargs):
-    """Wrapper untuk Binance requests dengan proteksi IP"""
-    global ip_protection
-    
-    # Cek jika sedang banned
-    if time.time() < ip_protection['banned_until']:
-        remaining = ip_protection['banned_until'] - time.time()
-        if remaining > 0:
-            print(f"⏳ Waiting {remaining:.0f}s due to IP ban")
-            time.sleep(min(remaining, 60))
-    
-    # Apply rate limiting
-    if not safe_request_delay():
-        return None
-    
-    max_retries = 2  # ✅ KURANGI retry untuk lebih aman
-    for attempt in range(max_retries):
-        try:
-            result = func(*args, **kwargs)
-            ip_protection['consecutive_errors'] = 0  # Reset error counter
-            return result
-            
-        except Exception as e:
-            print(f"❌ Binance request attempt {attempt + 1} failed: {e}")
-            
-            if handle_binance_error(e):
-                return None  # IP banned, stop retrying
-            
-            if attempt < max_retries - 1:
-                wait_time = (2 ** attempt) + random.uniform(1, 3)
-                print(f"⏳ Retrying in {wait_time:.1f}s...")
-                time.sleep(wait_time)
-            else:
-                print("❌ All retry attempts failed")
-                return None
-    
-    return None
-
-def get_current_price(symbol):
-    """Get current price dengan proteksi IP"""
-    return safe_binance_request(client.get_symbol_ticker, symbol=symbol)
-
-def get_klines_data(symbol, interval, limit=50):
-    """Get klines data dengan proteksi IP"""
-    return safe_binance_request(client.get_klines, symbol=symbol, interval=interval, limit=limit)
+def sync_binance_time():
+    """Sync time with Binance server"""
+    try:
+        server_time = client.get_server_time()
+        local_time = int(time.time() * 1000)
+        time_diff = server_time['serverTime'] - local_time
+        client.time_offset = time_diff
+        return True
+    except Exception as e:
+        print(f"❌ Time sync failed: {e}")
+        return False
 
 def get_symbol_info(symbol):
-    """Get symbol information dengan proteksi IP"""
-    return safe_binance_request(client.get_symbol_info, symbol=symbol)
+    """Get symbol information for price and quantity precision"""
+    try:
+        rate_limit()
+        info = client.get_symbol_info(symbol)
+        return info
+    except Exception as e:
+        return None
 
-# ==================== INDIKATOR TEKNIKAL ====================
+def get_price_precision(symbol):
+    """Get price precision for symbol"""
+    try:
+        info = get_symbol_info(symbol)
+        if info:
+            for f in info['filters']:
+                if f['filterType'] == 'PRICE_FILTER':
+                    tick_size = float(f['tickSize'])
+                    precision = 0
+                    while tick_size < 1:
+                        tick_size *= 10
+                        precision += 1
+                    return precision
+        return 6
+    except Exception as e:
+        return 6
+
+def get_quantity_precision(symbol):
+    """Get quantity precision for symbol"""
+    try:
+        info = get_symbol_info(symbol)
+        if info:
+            for f in info['filters']:
+                if f['filterType'] == 'LOT_SIZE':
+                    step_size = float(f['stepSize'])
+                    precision = 0
+                    while step_size < 1:
+                        step_size *= 10
+                        precision += 1
+                    return precision
+        return 2
+    except Exception as e:
+        return 2
+
+def get_min_notional(symbol):
+    """Get minimum notional requirement for symbol"""
+    try:
+        symbol_info = client.get_symbol_info(symbol)
+        if symbol_info:
+            for f in symbol_info['filters']:
+                if f['filterType'] == 'MIN_NOTIONAL':
+                    min_notional = float(f.get('minNotional', 10.0))
+                    return min_notional
+                elif f['filterType'] == 'NOTIONAL':
+                    min_notional = float(f.get('minNotional', 10.0))
+                    return min_notional
+        return 10.0
+    except Exception as e:
+        return 10.0
+
+def round_step_size(quantity, symbol):
+    """Round quantity to appropriate step size dengan perbaikan error handling"""
+    try:
+        if quantity <= 0:
+            print(f"   ⚠️ Invalid quantity for rounding: {quantity}")
+            return None
+            
+        symbol_info = get_symbol_info(symbol)
+        if not symbol_info:
+            print(f"   ⚠️ No symbol info for {symbol}, using simple rounding")
+            # Fallback: simple rounding to 6 decimal places
+            return math.floor(quantity * 1000000) / 1000000
+            
+        for filter in symbol_info['filters']:
+            if filter['filterType'] == 'LOT_SIZE':
+                step_size = float(filter['stepSize'])
+                
+                # Cek minimum quantity
+                min_qty = float(filter.get('minQty', step_size))
+                if quantity < min_qty:
+                    print(f"   ⚠️ Quantity {quantity} below minimum {min_qty}")
+                    return None
+                
+                # Round to step size
+                precision = int(round(-math.log(step_size, 10), 0))
+                rounded_qty = math.floor(quantity / step_size) * step_size
+                rounded_qty = round(rounded_qty, precision)
+                
+                if rounded_qty <= 0:
+                    print(f"   ⚠️ Rounded quantity <= 0: {rounded_qty}")
+                    return None
+                    
+                if rounded_qty < min_qty:
+                    print(f"   ⚠️ Rounded quantity {rounded_qty} below minimum {min_qty}")
+                    return None
+                    
+                print(f"   🔧 Quantity rounded: {quantity} -> {rounded_qty} (step: {step_size})")
+                return float(rounded_qty)
+                
+        # Fallback jika tidak ada LOT_SIZE filter
+        print(f"   ⚠️ No LOT_SIZE filter for {symbol}, using simple rounding")
+        return math.floor(quantity * 1000000) / 1000000
+        
+    except Exception as e:
+        print(f"❌ Error in round_step_size for {symbol}: {e}")
+        # Fallback: simple rounding
+        return math.floor(quantity * 1000000) / 1000000
+
+def get_current_price(symbol):
+    """Get current price with proper formatting"""
+    try:
+        rate_limit()
+        ticker = client.get_symbol_ticker(symbol=symbol)
+        price = float(ticker['price'])
+        precision = get_price_precision(symbol)
+        return round(price, precision)
+    except Exception as e:
+        return None
+
+# ==================== INDIKATOR TEKNIKAL UNTUK 2 TIMEFRAME ====================
 def calculate_ema(prices, period):
-    """Calculate EMA dengan error handling"""
+    """Calculate EMA dengan error handling yang lebih baik"""
     if prices is None or len(prices) < period:
+        print(f"   ⚠️ EMA: Not enough data (need {period}, got {len(prices) if prices else 0})")
         return None
     
     try:
+        # Pastikan tidak ada NaN atau infinite values
         prices_clean = [float(price) for price in prices if price is not None and not math.isnan(price)]
         
         if len(prices_clean) < period:
             return None
             
+        # Gunakan pandas EMA yang lebih stabil
         series = pd.Series(prices_clean)
         ema = series.ewm(span=period, adjust=False).mean()
         return ema.values
@@ -505,67 +1341,125 @@ def calculate_macd(prices, fast=12, slow=26, signal=9):
     except Exception as e:
         return None, None, None
 
-# ==================== DATA FETCHING DENGAN PROTEKSI ====================
-def get_two_timeframe_data(symbol):
-    """Get data dengan proteksi IP dan validation"""
+def calculate_linear_regression(prices, period=20):
+    """Calculate Linear Regression Oscillator"""
+    if len(prices) < period:
+        return 0
+    
     try:
-        # Cek apakah symbol valid
-        test_price_data = get_current_price(symbol)
-        if not test_price_data:
+        x = np.arange(period)
+        y = prices[-period:]
+        
+        A = np.vstack([x, np.ones(len(x))]).T
+        m, b = np.linalg.lstsq(A, y, rcond=None)[0]
+        
+        regression_line = m * x + b
+        current_regression = regression_line[-1]
+        current_price = prices[-1]
+        
+        lro = ((current_price - current_regression) / abs(current_regression)) * 100 if current_regression != 0 else 0
+        
+        return lro
+    except Exception as e:
+        return 0
+
+def calculate_volume_profile(volumes, period=20):
+    """Calculate volume profile and detect volume spikes"""
+    if len(volumes) < period:
+        return 1.0
+    
+    try:
+        current_volume = volumes[-1]
+        avg_volume = np.mean(volumes[-period:])
+        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+        return volume_ratio
+    except Exception as e:
+        return 1.0
+
+# ==================== DATA FETCHING UNTUK 2 TIMEFRAME ====================
+def get_klines_data(symbol, interval, limit=50):
+    """Get klines data dengan processing yang benar"""
+    try:
+        rate_limit()
+        
+        # Tambahkan retry mechanism
+        for attempt in range(3):
+            try:
+                klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+                if klines and len(klines) >= 20:
+                    # Process data dengan benar
+                    closes = []
+                    highs = []
+                    lows = []
+                    volumes = []
+                    
+                    for kline in klines:
+                        closes.append(float(kline[4]))  # Close price
+                        highs.append(float(kline[2]))   # High price
+                        lows.append(float(kline[3]))    # Low price
+                        volumes.append(float(kline[5])) # Volume
+                    
+                    processed_data = {
+                        'close': closes,
+                        'high': highs,
+                        'low': lows,
+                        'volume': volumes
+                    }
+                    
+                    return processed_data
+                else:
+                    print(f"   ⚠️ Insufficient data for {symbol} {interval}: {len(klines) if klines else 0} candles")
+                    time.sleep(1)
+            except Exception as e:
+                print(f"   ⚠️ Attempt {attempt + 1} failed: {e}")
+                time.sleep(2)
+        
+        return None
+    except Exception as e:
+        print(f"❌ Final error get_klines_data untuk {symbol}: {str(e)}")
+        return None
+
+def get_two_timeframe_data(symbol):
+    """Get data dengan validation yang ketat"""
+    try:
+        # Cek apakah symbol valid dengan get_price dulu
+        test_price = get_current_price(symbol)
+        if not test_price:
             print(f"   💀 INVALID SYMBOL: {symbol} - skipping")
             return None, None
         
         print(f"   📊 Fetching data for {symbol}...")
-        
-        # ✅ TAMBAH DELAY LEBIH PANJANG
-        time.sleep(DELAY_BETWEEN_REQUESTS)
         data_15m = get_klines_data(symbol, Client.KLINE_INTERVAL_15MINUTE, 40)
-        
-        time.sleep(DELAY_BETWEEN_REQUESTS)  # ✅ DELAY antara timeframe
+        time.sleep(DELAY_BETWEEN_REQUESTS)  # Delay antara timeframe
         data_5m = get_klines_data(symbol, Client.KLINE_INTERVAL_5MINUTE, 40)
         
-        # ... sisanya tetap sama
-        
-        # Validasi data
+        # Validasi data yang diterima
         if data_15m is None or data_5m is None:
             print(f"   📭 No data received for {symbol}")
             return None, None
             
-        # Process data
-        def process_klines(klines):
-            if not klines or len(klines) < 20:
-                return None
-                
-            closes = [float(k[4]) for k in klines]
-            highs = [float(k[2]) for k in klines]
-            lows = [float(k[3]) for k in klines]
-            volumes = [float(k[5]) for k in klines]
-            
-            return {
-                'close': closes,
-                'high': highs, 
-                'low': lows,
-                'volume': volumes
-            }
-        
-        processed_15m = process_klines(data_15m)
-        processed_5m = process_klines(data_5m)
-        
-        if processed_15m and processed_5m:
-            print(f"   ✅ Data OK: M15({len(processed_15m['close'])}), M5({len(processed_5m['close'])})")
-            return processed_15m, processed_5m
-        else:
-            print(f"   📭 Insufficient data for {symbol}")
+        # Validasi length data
+        min_data_points = 20
+        if (len(data_15m['close']) < min_data_points or 
+            len(data_5m['close']) < min_data_points):
+            print(f"   📭 Insufficient data points for {symbol}")
             return None, None
+            
+        print(f"   ✅ Data OK: M15({len(data_15m['close'])}), M5({len(data_5m['close'])})")
+        return data_15m, data_5m
         
     except Exception as e:
         print(f"❌ Error get_two_timeframe_data untuk {symbol}: {e}")
         return None, None
 
-# ==================== SISTEM SINYAL ====================
+# ==================== SISTEM SINYAL YANG DIPERBAIKI ====================
 def analyze_timeframe_improved(data, timeframe, symbol):
-    """Analisis timeframe dengan proteksi data"""
+    """Analisis timeframe dengan error handling"""
+    # Validasi input data lebih ketat
     if data is None:
+        return False, 0
+        
+    if not isinstance(data, dict):
         return False, 0
         
     required_keys = ['close', 'high', 'low', 'volume']
@@ -575,55 +1469,85 @@ def analyze_timeframe_improved(data, timeframe, symbol):
 
     try:
         closes = data['close']
+        highs = data['high']
+        lows = data['low']
+        volumes = data['volume']
 
-        # Tentukan parameter berdasarkan timeframe
+        # TENTUKAN PARAMETER BERDASARKAN TIMEFRAME
         if timeframe == '15m':
             ema_short_period = EMA_SHORT_15M
             ema_long_period = EMA_LONG_15M
             rsi_min = RSI_MIN_15M
             rsi_max = RSI_MAX_15M
+            macd_fast = MACD_FAST_15M
+            macd_slow = MACD_SLOW_15M
+            macd_signal = MACD_SIGNAL_15M
+            lro_period = LRO_PERIOD_15M
+            volume_period = VOLUME_PERIOD_15M
         else:  # '5m'
             ema_short_period = EMA_SHORT_5M
             ema_long_period = EMA_LONG_5M
             rsi_min = RSI_MIN_5M
             rsi_max = RSI_MAX_5M
+            macd_fast = MACD_FAST_5M
+            macd_slow = MACD_SLOW_5M
+            macd_signal = MACD_SIGNAL_5M
+            lro_period = LRO_PERIOD_5M
+            volume_period = VOLUME_PERIOD_5M
 
-        # Hitung indikator
+        # Hitung indikator dengan error handling
         ema_short = calculate_ema(closes, ema_short_period)
         ema_long = calculate_ema(closes, ema_long_period)
         rsi = calculate_rsi(closes, 14)
+        macd_line, macd_signal, macd_histogram = calculate_macd(closes, macd_fast, macd_slow, macd_signal)
+        lro = calculate_linear_regression(closes, lro_period)
+        volume_ratio = calculate_volume_profile(volumes, volume_period)
 
-        if any(x is None for x in [ema_short, ema_long, rsi]):
+        # Validasi semua indikator tidak None
+        if any(x is None for x in [ema_short, ema_long, rsi, macd_line]):
             return False, 0
 
-        current_index = len(closes) - 1
+        current_index = min(
+            len(closes)-1, 
+            len(ema_short)-1 if ema_short is not None else len(closes)-1,
+            len(ema_long)-1 if ema_long is not None else len(closes)-1,
+            len(rsi)-1 if rsi is not None else len(closes)-1
+        )
 
-        # Kriteria sederhana untuk mengurangi computation
-        price_above_ema_short = closes[current_index] > ema_short[current_index]
-        price_above_ema_long = closes[current_index] > ema_long[current_index]
-        ema_bullish = ema_short[current_index] > ema_long[current_index]
-        rsi_ok = (rsi_min <= rsi[current_index] <= rsi_max)
+        # KRITERIA dengan default value jika None
+        price_above_ema_short = closes[current_index] > ema_short[current_index] if ema_short is not None else False
+        price_above_ema_long = closes[current_index] > ema_long[current_index] if ema_long is not None else False
+        ema_bullish = ema_short[current_index] > ema_long[current_index] if (ema_short is not None and ema_long is not None) else False
+        
+        rsi_ok = (rsi_min <= rsi[current_index] <= rsi_max) if rsi is not None else False
+        macd_bullish = macd_line[current_index] > macd_signal[current_index] if (macd_signal is not None and macd_line is not None) else False
+        volume_ok = volume_ratio > VOLUME_RATIO_MIN if volume_ratio is not None else False
+        lro_positive = lro > -2 if lro is not None else False
 
-        # Hitung skor sederhana
+        # Hitung skor
         score = 0
-        if price_above_ema_short: score += 25
-        if price_above_ema_long: score += 20
-        if ema_bullish: score += 25
-        if rsi_ok: score += 30
+        if price_above_ema_short: score += 20
+        if price_above_ema_long: score += 15
+        if ema_bullish: score += 15
+        if rsi_ok: score += 20
+        if macd_bullish: score += 15
+        if volume_ok: score += 10
+        if lro_positive: score += 5
 
-        signal_ok = (price_above_ema_short and rsi_ok and ema_bullish)
+        signal_ok = (price_above_ema_short and rsi_ok and macd_bullish and 
+                    volume_ok and lro_positive)
 
         return signal_ok, min(score, 100)
 
     except Exception as e:
-        print(f"❌ Error in analyze_timeframe_improved for {symbol}: {str(e)}")
+        print(f"❌ Error in analyze_timeframe_improved for {symbol} ({timeframe}): {str(e)}")
         return False, 0
 
 def analyze_coin_improved(symbol):
-    """Analisis coin dengan proteksi IP"""
+    """Analisis coin dengan error handling yang lebih baik"""
     if symbol in failed_coins:
         fail_time = failed_coins[symbol]
-        if time.time() - fail_time < 600:  # 10 menit cooldown
+        if time.time() - fail_time < 300:
             return None
         else:
             failed_coins.pop(symbol, None)
@@ -631,23 +1555,36 @@ def analyze_coin_improved(symbol):
     try:
         data_15m, data_5m = get_two_timeframe_data(symbol)
         
+        # Validasi data lebih ketat
         if data_15m is None or data_5m is None:
+            print(f"   📭 No data for {symbol}")
             return None
+        
+        # Validasi key yang diperlukan ada
+        required_keys = ['close', 'high', 'low', 'volume']
+        for data in [data_15m, data_5m]:
+            for key in required_keys:
+                if key not in data or data[key] is None or len(data[key]) == 0:
+                    print(f"   📭 Missing {key} data for {symbol}")
+                    return None
         
         # Analyze kedua timeframe
         m15_ok, m15_score = analyze_timeframe_improved(data_15m, '15m', symbol)
         m5_ok, m5_score = analyze_timeframe_improved(data_5m, '5m', symbol)
         
+        # Pastikan score valid
+        if m15_score is None: m15_score = 0
+        if m5_score is None: m5_score = 0
+        
         confidence = (m15_score * 0.6) + (m5_score * 0.4)
         confidence = min(95, max(confidence, 0))
         
-        # Get current price
-        price_data = get_current_price(symbol)
-        if not price_data:
+        current_price = get_current_price(symbol)
+        if current_price is None:
+            print(f"   💰 Cannot get price for {symbol}")
             return None
-            
-        current_price = float(price_data['price'])
         
+        # PERUBAHAN PENTING: Confidence harus >= dynamic_threshold untuk sinyal buy
         buy_signal = (m15_ok and m5_ok) and confidence >= dynamic_threshold
         
         return {
@@ -655,8 +1592,10 @@ def analyze_coin_improved(symbol):
             'buy_signal': buy_signal,
             'confidence': confidence,
             'current_price': current_price,
-            'm15_signal': m15_ok,
-            'm5_signal': m5_ok
+            'm15_signal': m15_ok if m15_ok is not None else False,
+            'm5_signal': m5_ok if m5_ok is not None else False,
+            'm15_score': m15_score,
+            'm5_score': m5_score
         }
         
     except Exception as e:
@@ -665,60 +1604,169 @@ def analyze_coin_improved(symbol):
         return None
 
 # ==================== ORDER MANAGEMENT ====================
-def place_market_buy_order(symbol, investment_amount):
-    """Place market buy order dengan proteksi IP"""
+def get_precise_quantity(symbol, investment_amount):
+    """Dapatkan quantity yang tepat untuk order - DIPERBAIKI untuk minimum $5.5"""
+    try:
+        current_price = get_current_price(symbol)
+        if not current_price or current_price <= 0:
+            print(f"   ❌ Tidak bisa mendapatkan harga untuk {symbol}")
+            return None
+            
+        # Hitung quantity teoritis
+        theoretical_quantity = investment_amount / current_price
+        
+        if theoretical_quantity <= 0:
+            print(f"   ❌ Quantity teoritis <= 0: {theoretical_quantity}")
+            return None
+            
+        # Untuk simulasi, gunakan quantity sederhana
+        if not ORDER_RUN:
+            # Round to 6 decimal places for simulation
+            precise_quantity = round(theoretical_quantity * 0.999, 6)
+            print(f"   🔧 SIMULATION Qty: {precise_quantity} (dari ${investment_amount} / ${current_price})")
+            return precise_quantity
+            
+        # Untuk live trading, gunakan rounding yang tepat
+        adjusted_quantity = theoretical_quantity * 1.0
+        precise_quantity = round_step_size(adjusted_quantity, symbol)
+        
+        if not precise_quantity:
+            print(f"   ❌ Gagal round quantity untuk {symbol}")
+            return None
+            
+        return precise_quantity
+        
+    except Exception as e:
+        print(f"❌ Error di get_precise_quantity: {e}")
+        return None
+
+def calculate_position_size(symbol):
+    """Hitung ukuran position - DIPERBAIKI untuk minimum $5.5"""
     global current_investment
     
-    if not safe_request_delay():
-        return None
-        
+    # Hitung position size berdasarkan persentase
+    position_value = current_investment * POSITION_SIZING_PCT
+    
+    print(f"💰 Position calculation for {symbol}:")
+    print(f"   Capital: ${current_investment:.2f}")
+    print(f"   {POSITION_SIZING_PCT*100}% = ${position_value:.2f}")
+    
+    # PASTIKAN MINIMAL $5.5 (sesuai INITIAL_INVESTMENT)
+    if position_value < INITIAL_INVESTMENT:
+        print(f"   ⚠️ Below minimum ${INITIAL_INVESTMENT}, adjusting...")
+        position_value = INITIAL_INVESTMENT
+    
+    # Batasi maksimal 60% dari capital
+    max_position = current_investment * 0.6
+    if position_value > max_position:
+        print(f"   ⚠️ Above max limit, adjusting to ${max_position:.2f}")
+        position_value = max_position
+    
+    # Pastikan tidak melebihi capital yang tersedia
+    if position_value > current_investment:
+        print(f"   ⚠️ Above available capital, adjusting to ${current_investment:.2f}")
+        position_value = current_investment
+    
+    print(f"   ✅ Final Position: ${position_value:.2f}")
+    return position_value
+
+def place_market_buy_order(symbol, investment_amount):
+    """Place market buy order - DIPERBAIKI untuk minimum $5.5"""
+    global current_investment
+    
     try:
         print(f"🔹 BUY ORDER: {symbol}")
         
-        # Untuk simulasi
-        if not ORDER_RUN:
-            current_price_data = get_current_price(symbol)
-            if not current_price_data:
+        # Cek balance untuk live trading
+        free_balance = 0  # ✅ INISIALISASI DULU
+        if ORDER_RUN:
+            try:
+                rate_limit()
+                balance = client.get_asset_balance(asset='USDT')
+                free_balance = float(balance['free'])
+                if free_balance < investment_amount:
+                    print(f"❌ Insufficient balance. Need: ${investment_amount:.2f}, Available: ${free_balance:.2f}")
+                    return None
+            except Exception as e:
+                print(f"⚠️ Balance check skipped: {e}")
+                # ✅ JIKA GAGAL CEK BALANCE, GUNAKAN INVESTMENT AMOUNT DEFAULT
+                free_balance = investment_amount * 2  # Asumsikan cukup
+        
+        current_price = get_current_price(symbol)
+        if not current_price or current_price <= 0:
+            print(f"❌ Cannot get price for {symbol}")
+            return None
+
+        # Hitung quantity
+        theoretical_quantity = investment_amount / current_price
+        
+        if theoretical_quantity <= 0:
+            print(f"❌ Invalid quantity: {theoretical_quantity}")
+            return None
+
+        # Dapatkan minimum notional
+        min_notional = get_min_notional(symbol)
+        calculated_value = theoretical_quantity * current_price
+        
+        print(f"   Calculated order value: ${calculated_value:.2f}")
+        print(f"   Minimum notional: ${min_notional:.2f}")
+        print(f"   Our minimum: ${INITIAL_INVESTMENT}")
+        
+        # PASTIKAN MEMENUHI MINIMAL KITA ($5.5) DAN MINIMAL BINANCE
+        required_minimum = max(min_notional, INITIAL_INVESTMENT)
+        if calculated_value < required_minimum:
+            print(f"   ⚠️ Below required minimum ${required_minimum}, adjusting...")
+            
+            # Hitung ulang dengan required minimum
+            required_investment = required_minimum * 1.02  # Tambah 2% untuk aman
+            theoretical_quantity = required_investment / current_price
+            
+            print(f"   Adjusted investment: ${required_investment:.2f}")
+            print(f"   Adjusted quantity: {theoretical_quantity:.8f}")
+            
+            # ✅ PERBAIKI: GUNAKAN VARIABLE YANG SUDAH DIINISIALISASI
+            if ORDER_RUN and required_investment > free_balance:
+                print(f"❌ Adjusted amount ${required_investment:.2f} exceeds balance ${free_balance:.2f}")
                 return None
-                
-            current_price = float(current_price_data['price'])
-            quantity = investment_amount / current_price
+
+        # MODE SIMULASI
+        if not ORDER_RUN:
+            precise_quantity = round(theoretical_quantity, 6)
             
             print(f"🧪 [SIMULATION] BUY {symbol}")
             print(f"   Investment: ${investment_amount:.2f}")
             print(f"   Price: ${current_price:.6f}")
-            print(f"   Quantity: {quantity:.8f}")
+            print(f"   Quantity: {precise_quantity:.8f}")
+            print(f"   Order Value: ${precise_quantity * current_price:.2f}")
             
-            return {
+            simulated_order = {
                 'status': 'FILLED',
                 'symbol': symbol,
-                'executedQty': str(quantity),
-                'fills': [{'price': str(current_price), 'qty': str(quantity)}]
+                'executedQty': str(precise_quantity),
+                'fills': [{'price': str(current_price), 'qty': str(precise_quantity)}]
             }
+            return simulated_order
 
         # LIVE TRADING
-        current_price_data = get_current_price(symbol)
-        if not current_price_data:
+        precise_quantity = round_step_size(theoretical_quantity, symbol)
+        
+        if not precise_quantity:
+            print(f"❌ Cannot get precise quantity")
             return None
             
-        current_price = float(current_price_data['price'])
-        quantity = investment_amount / current_price
+        final_order_value = precise_quantity * current_price
+        print(f"   Final Quantity: {precise_quantity}")
+        print(f"   Final Order Value: ${final_order_value:.2f}")
         
-        # Round quantity
-        symbol_info = get_symbol_info(symbol)
-        if symbol_info:
-            for f in symbol_info['filters']:
-                if f['filterType'] == 'LOT_SIZE':
-                    step_size = float(f['stepSize'])
-                    precision = int(round(-math.log(step_size, 10), 0))
-                    quantity = math.floor(quantity / step_size) * step_size
-                    quantity = round(quantity, precision)
-                    break
+        # Final check minimum requirements
+        if final_order_value < required_minimum:
+            print(f"❌ Still below required minimum after rounding: ${final_order_value:.2f} < ${required_minimum:.2f}")
+            return None
         
-        order = safe_binance_request(
-            client.order_market_buy,
+        rate_limit()
+        order = client.order_market_buy(
             symbol=symbol,
-            quantity=quantity
+            quantity=precise_quantity
         )
         
         if order and order.get('status') == 'FILLED':
@@ -730,202 +1778,758 @@ def place_market_buy_order(symbol, investment_amount):
             
     except Exception as e:
         print(f"❌ BUY error: {e}")
-        handle_binance_error(e)
         return None
 
-# ==================== MONITORING DENGAN PROTEKSI ====================
-def safe_monitor_coins():
-    """Monitor coins dengan proteksi IP yang ketat"""
-    global BOT_RUNNING, ip_protection
+def execute_market_sell(symbol, quantity, entry_price, exit_type):
+    """Execute market sell order dengan proses cepat"""
+    global current_investment, active_position
     
-    if not BOT_RUNNING:
+    try:
+        print(f"🔹 FAST SELL: {symbol} ({exit_type})")
+        
+        current_price = get_current_price(symbol)
+        if not current_price:
+            print(f"   ❌ Cannot get current price for {symbol}")
+            return False
+
+        # CEK BALANCE SEBELUM JUAL
+        if ORDER_RUN:
+            asset = symbol.replace('USDT', '')
+            try:
+                rate_limit()
+                balance_info = client.get_asset_balance(asset=asset)
+                if balance_info:
+                    available_balance = float(balance_info['free'])
+                    print(f"   💰 Available {asset}: {available_balance}")
+                    
+                    if available_balance <= 0:
+                        print(f"   ❌ No {asset} balance available")
+                        active_position = None  # Reset position
+                        return False
+                        
+                    # Adjust quantity jika perlu
+                    if quantity > available_balance:
+                        print(f"   ⚠️ Adjusting quantity from {quantity} to {available_balance}")
+                        quantity = available_balance
+            except Exception as e:
+                print(f"   ⚠️ Balance check error: {e}")
+
+        # QUANTITY CEPAT - gunakan quantity asli untuk simulasi
+        if not ORDER_RUN:
+            # SIMULASI CEPAT
+            log_position_closed(symbol, entry_price, current_price, quantity, exit_type)
+            active_position = None
+            return True
+
+        # LIVE TRADING - CEPAT dengan error handling
+        precise_quantity = round_step_size(quantity, symbol)
+        if not precise_quantity:
+            precise_quantity = round(quantity, 6)
+
+        # CEK ULANG SEBELUM ORDER
+        if precise_quantity <= 0:
+            print(f"   ❌ Invalid quantity: {precise_quantity}")
+            active_position = None
+            return False
+
+        rate_limit()
+        sell_order = client.order_market_sell(
+            symbol=symbol,
+            quantity=precise_quantity
+        )
+
+        if sell_order and sell_order.get('status') == 'FILLED':
+            executed_qty = float(sell_order.get('executedQty', 0))
+            exit_price = current_price
+            
+            if sell_order.get('fills') and len(sell_order['fills']) > 0:
+                exit_price = float(sell_order['fills'][0]['price'])
+            
+            log_position_closed(symbol, entry_price, exit_price, executed_qty, exit_type)
+            active_position = None
+            print(f"   ✅ SELL successful: {executed_qty} {symbol} at ${exit_price}")
+            return True
+            
+        # JIKA GAGAL, reset position
+        print(f"   ❌ SELL order failed for {symbol}")
+        active_position = None
+        return False
+
+    except Exception as e:
+        print(f"❌ Fast SELL error: {e}")
+        active_position = None
+        return False
+
+# ==================== RISK MANAGEMENT ====================
+def check_portfolio_health():
+    """Cek kesehatan portfolio"""
+    global current_investment
+    
+    if current_investment < INITIAL_INVESTMENT * (1 - MAX_DRAWDOWN_PCT):
+        stop_msg = (f"🛑 <b>BOT STOPPED - MAX DRAWDOWN REACHED</b>\n"
+                  f"Initial: ${INITIAL_INVESTMENT:.2f}\n"
+                  f"Current: <b>${current_investment:.2f}</b>\n"
+                  f"Drawdown: <b>-{((INITIAL_INVESTMENT - current_investment)/INITIAL_INVESTMENT*100):.1f}%</b>")
+        
+        print("🛑 Maximum drawdown reached - Stopping bot")
+        send_telegram_message(stop_msg)
+        return False
+    
+    return True
+
+# ==================== TRAILING STOP SYSTEM ====================
+def update_trailing_stop(current_price):
+    """Update trailing stop untuk position aktif"""
+    global active_position
+    
+    if not active_position:
+        return
+    
+    entry_price = active_position['entry_price']
+    highest_price = active_position.get('highest_price', entry_price)
+    
+    if current_price > highest_price:
+        active_position['highest_price'] = current_price
+        highest_price = current_price
+    
+    price_increase_pct = (highest_price - entry_price) / entry_price
+    
+    if price_increase_pct >= TRAILING_STOP_ACTIVATION:
+        new_stop_loss = highest_price * (1 - TRAILING_STOP_PCT)
+        
+        if new_stop_loss > active_position['stop_loss']:
+            active_position['stop_loss'] = new_stop_loss
+            active_position['trailing_active'] = True
+            
+            print(f"🔧 Trailing Stop updated: {new_stop_loss:.6f}")
+
+def check_trailing_stop(current_price, symbol):
+    """Check trailing stop conditions"""
+    global active_position
+    
+    if not active_position or active_position['symbol'] != symbol:
+        return False
+    
+    # Cek jika sudah ada proses jual yang berjalan
+    if active_position.get('selling_in_progress'):
+        return False
+    
+    stop_loss = active_position['stop_loss']
+    
+    if current_price <= stop_loss:
+        print(f"🛑 Trailing Stop hit for {symbol} at ${current_price:.6f}")
+        quantity = active_position['quantity']
+        entry_price = active_position['entry_price']
+        
+        # Tandai sedang proses jual
+        active_position['selling_in_progress'] = True
+        
+        if execute_market_sell(symbol, quantity, entry_price, "TRAILING STOP"):
+            pnl_pct = (current_price - entry_price) / entry_price * 100
+            recent_trades.append(pnl_pct)
+            update_dynamic_threshold()
+            return True
+        else:
+            # Reset flag jika gagal
+            active_position['selling_in_progress'] = False
+    
+    return False
+
+# ==================== WEBSOCKET MANAGEMENT YANG DIPERBAIKI ====================
+def handle_websocket_message(msg):
+    """Handle WebSocket messages untuk real-time monitoring dengan error handling"""
+    global active_position, websocket_restart_attempts
+    
+    try:
+        if msg['e'] == 'error':
+            error_msg = f"WebSocket error: {msg}"
+            print(f"❌ {error_msg}")
+            
+            # Cek jika ini IP banned error
+            if "IP banned" in str(msg) or "WAY_TOO_MUCH_REQUEST" in str(msg):
+                raise WebSocketError("IP banned detected in WebSocket")
+            
+            return
+            
+        symbol = msg['s']
+        current_price = float(msg['c'])
+        
+        # Cek apakah ini coin yang kita pegang
+        if not active_position or active_position['symbol'] != symbol:
+            return
+        
+        # Jangan proses jika sedang dalam proses jual
+        if active_position.get('selling_in_progress'):
+            return
+        
+        print(f"📊 WebSocket Update: {symbol} = ${current_price:.6f}")
+        
+        entry_price = active_position['entry_price']
+        quantity = active_position['quantity']
+        
+        # Update trailing stop
+        update_trailing_stop(current_price)
+        
+        # Cek trailing stop terlebih dahulu
+        if check_trailing_stop(current_price, symbol):
+            return
+        
+        # Cek Take Profit
+        take_profit = active_position['take_profit']
+        if current_price >= take_profit:
+            print(f"🎯 TP hit for {symbol} at ${current_price:.6f} (TP: ${take_profit:.6f})")
+            # Tandai sedang proses jual
+            active_position['selling_in_progress'] = True
+            if execute_market_sell(symbol, quantity, entry_price, "TAKE PROFIT"):
+                pnl_pct = (current_price - entry_price) / entry_price * 100
+                recent_trades.append(pnl_pct)
+                update_dynamic_threshold()
+            else:
+                # Reset flag jika gagal
+                active_position['selling_in_progress'] = False
+            return
+        
+        # Cek Stop Loss (hanya jika trailing stop tidak aktif)
+        stop_loss = active_position['stop_loss']
+        if current_price <= stop_loss and not active_position.get('trailing_active', False):
+            print(f"🛑 SL hit for {symbol} at ${current_price:.6f} (SL: ${stop_loss:.6f})")
+            # Tandai sedang proses jual
+            active_position['selling_in_progress'] = True
+            if execute_market_sell(symbol, quantity, entry_price, "STOP LOSS"):
+                pnl_pct = (current_price - entry_price) / entry_price * 100
+                recent_trades.append(pnl_pct)
+                update_dynamic_threshold()
+            else:
+                # Reset flag jika gagal
+                active_position['selling_in_progress'] = False
+            return
+                    
+    except Exception as e:
+        print(f"❌ WebSocket message handling error: {e}")
+        # Restart WebSocket jika error critical
+        if "IP banned" in str(e) or "WAY_TOO_MUCH_REQUEST" in str(e):
+            raise WebSocketError(f"Critical WebSocket error: {e}")
+
+def start_websocket_monitoring(symbol):
+    """Start WebSocket monitoring for symbol dengan error handling"""
+    global twm, websocket_restart_attempts
+    
+    try:
+        if twm is None:
+            twm = ThreadedWebsocketManager(api_key=API_KEY, api_secret=API_SECRET)
+            twm.start()
+        
+        print(f"🔌 Starting WebSocket monitoring for {symbol}")
+        twm.start_symbol_ticker_socket(callback=handle_websocket_message, symbol=symbol)
+        
+        websocket_restart_attempts = 0  # Reset counter jika berhasil
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error starting WebSocket for {symbol}: {e}")
+        websocket_restart_attempts += 1
+        
+        if websocket_restart_attempts >= MAX_WEBSOCKET_RESTARTS:
+            print(f"💀 Max WebSocket restart attempts reached. Switching to polling.")
+            send_telegram_message("⚠️ <b>WebSocket failed</b>\nSwitching to polling mode.")
+            return False
+        
+        # Tunggu sebelum restart
+        wait_time = 2 ** websocket_restart_attempts  # Exponential backoff
+        print(f"🔄 Restarting WebSocket in {wait_time}s (attempt {websocket_restart_attempts})")
+        time.sleep(wait_time)
+        return start_websocket_monitoring(symbol)  # Recursive restart
+
+def stop_websocket_monitoring():
+    """Stop all WebSocket monitoring dengan error handling"""
+    global twm, websocket_restart_attempts
+    
+    try:
+        if twm:
+            print("🔌 Stopping WebSocket monitoring...")
+            twm.stop()
+            twm = None
+            websocket_restart_attempts = 0
+            print("✅ WebSocket monitoring stopped")
+    except Exception as e:
+        print(f"❌ Error stopping WebSocket: {e}")
+        twm = None  # Force reset
+        websocket_restart_attempts = 0
+
+# ==================== POLLING FALLBACK SYSTEM ====================
+def start_polling_monitoring(symbol):
+    """Start polling monitoring sebagai fallback ketika WebSocket gagal"""
+    print(f"🔄 Starting POLLING monitoring for {symbol}")
+    
+    def polling_worker():
+        while active_position and active_position['symbol'] == symbol and BOT_RUNNING:
+            try:
+                current_price = get_current_price(symbol)
+                if current_price:
+                    # Simulasikan WebSocket message
+                    mock_msg = {
+                        'e': '24hrTicker',
+                        's': symbol,
+                        'c': str(current_price)
+                    }
+                    handle_websocket_message(mock_msg)
+                
+                # Poll setiap 2 detik
+                time.sleep(2)
+            except Exception as e:
+                print(f"❌ Polling error for {symbol}: {e}")
+                time.sleep(5)
+    
+    polling_thread = threading.Thread(target=polling_worker, daemon=True)
+    polling_thread.start()
+    return True
+
+# ==================== MONITORING & EXECUTION YANG DIPERBAIKI ====================
+def monitor_coins_until_signal():
+    """Monitor coins sampai menemukan sinyal buy pertama - DENGAN INTERRUPTIBLE"""
+    global buy_signals, BOT_RUNNING
+    
+    # CEK KONEKSI DULU
+    try:
+        client.ping()
+        print(f"\n🔍 SCANNING coins until signal found...")
+    except Exception as e:
+        print(f"❌ BINANCE CONNECTION ERROR: {e}")
+        print("💤 Waiting 60s before retry...")
+        time.sleep(60)
         return []
     
-    # Cek IP ban status
-    if time.time() < ip_protection['banned_until']:
-        remaining = ip_protection['banned_until'] - time.time()
-        if remaining > 300:  # Jika banned > 5 menit, tunggu
-            print(f"🔴 IP Banned - Resuming in {remaining/60:.1f} minutes")
-            return []
-    
     buy_signals = []
-    coins_to_scan = COINS[:MAX_COINS_PER_SCAN]  # Batasi jumlah coin
     
-    print(f"🔍 SAFE SCANNING {len(coins_to_scan)} coins...")
-    print(f"📊 Request stats: Today: {ip_protection['total_requests_today']}, Banned until: {datetime.fromtimestamp(ip_protection['banned_until']).strftime('%H:%M:%S')}")
-    
-    for i, coin in enumerate(coins_to_scan):
+    for i, coin in enumerate(COINS):
+        # ✅ PERIKSA STATUS BOT SETIAP COIN - INI KUNCI UTAMA!
         if not BOT_RUNNING:
-            break
-            
-        # Delay yang aman antara coins
-        if i > 0:
-            time.sleep(DELAY_BETWEEN_COINS)
+            print("🛑 Scanning interrupted by /stop command")
+            return []
         
         try:
+            print(f"   Checking {coin}...")
+            
+            # ✅ TAMBAHKAN DELAY ANTAR COIN UNTUK MENGHINDARI BAN
+            if i > 0:
+                print(f"   ⏳ Waiting {DELAY_BETWEEN_COINS}s before next coin...")
+                time.sleep(DELAY_BETWEEN_COINS)
+            
             analysis = analyze_coin_improved(coin)
+            
+            # ✅ TAMBAHKAN CEK BOT_RUNNING SETELAH ANALISIS
+            if not BOT_RUNNING:
+                print("🛑 Analysis interrupted by /stop command")
+                return []
             
             if analysis and analysis['buy_signal']:
                 print(f"   🚨 SIGNAL FOUND: {coin} - Confidence: {analysis['confidence']:.1f}%")
                 buy_signals.append(analysis)
                 
-                # Kirim notifikasi
-                if SEND_TELEGRAM_NOTIFICATIONS:
-                    telegram_msg = f"🚨 <b>BUY SIGNAL DETECTED</b>\n• {coin}: {analysis['confidence']:.1f}%\n• Price: ${analysis['current_price']:.6f}"
-                    send_telegram_message(telegram_msg)
+                # KIRIM NOTIFIKASI CEPAT
+                telegram_msg = f"🚨 <b>BUY SIGNAL DETECTED</b>\n• {coin}: {analysis['confidence']:.1f}%\n• Price: ${analysis['current_price']:.6f}"
+                send_telegram_message(telegram_msg)
                 
-                # Stop setelah menemukan 1 sinyal untuk mengurangi request
-                break
+                # HENTIKAN SCANNING - LANGSUNG PROSES
+                print(f"   ⚡ STOPPING SCAN - Processing {coin} immediately")
+                return buy_signals
             
             elif analysis:
                 print(f"   ❌ {coin}: No signal ({analysis['confidence']:.1f}%)")
             else:
                 print(f"   💀 {coin}: No data")
-                
+            
+            # ✅ CEK BOT_RUNNING SETIAP 5 COIN UNTUK RESPONSIF
+            if i % 5 == 0:
+                if TELEGRAM_CONTROL_ENABLED:
+                    handle_telegram_command()
+                if not BOT_RUNNING:
+                    print("🛑 Scanning interrupted during batch check")
+                    return []
+            
+            # ✅ TAMBAHKAN DELAY ANTAR REQUEST
+            time.sleep(DELAY_BETWEEN_REQUESTS)
+            
         except Exception as e:
             print(f"   ⚠️ {coin}: Error - {e}")
+            
+            # ✅ TAMBAHKAN DELAY LEBIH PANJANG SETELAH ERROR
+            print(f"   ⏳ Waiting {DELAY_AFTER_ERROR}s after error...")
             time.sleep(DELAY_AFTER_ERROR)
+            
+            # ✅ CEK BOT_RUNNING SETELAH ERROR JUGA
+            if not BOT_RUNNING:
+                print("🛑 Error handling interrupted by /stop command")
+                return []
     
-    return buy_signals
+    print(f"\n📊 SCAN COMPLETE: No signals found in {len(COINS)} coins")
+    return []
 
-# ==================== MAIN BOT LOGIC YANG AMAN ====================
-def main_safe_bot():
-    """Main bot function dengan proteksi IP maksimal"""
-    global current_investment, active_position, BOT_RUNNING, ip_protection
+def fast_execute_signal(signal):
+    """Execute trade dengan proses sangat cepat setelah sinyal ditemukan"""
+    global active_position
+
+    if not BOT_RUNNING:
+        print("🛑 Execution cancelled by /stop command")
+        return False
     
-    print("🚀 Starting SAFE TRADING BOT - ANTI IP BANNED")
-    print(f"🔧 Configuration: {DELAY_BETWEEN_REQUESTS}s between requests, {MAX_COINS_PER_SCAN} coins/scan")
+    symbol = signal['symbol']
+    confidence = signal['confidence']
+    current_price = signal['current_price']
+    
+    print(f"⚡ FAST EXECUTION: {symbol} (Confidence: {confidence:.1f}%)")
+    
+    # KONFIRMASI ULANG SUPER CEPAT
+    print(f"   🔍 Quick re-confirmation...")
+    quick_check = analyze_coin_improved(symbol)
 
-    # Initialize
+    if not BOT_RUNNING:
+        print("🛑 Quick confirmation interrupted by /stop command")
+        return False
+    
+    if not quick_check or not quick_check['buy_signal']:
+        print(f"   ❌ Signal disappeared, aborting...")
+        failed_coins[symbol] = time.time()
+        return False
+    
+    # POSITION SIZE CEPAT - GUNAKAN MINIMAL $5.5
+    investment_amount = calculate_position_size(symbol)
+    
+    if not investment_amount:
+        print(f"   ❌ Cannot calculate position size")
+        return False
+    
+    print(f"   💰 Fast position: ${investment_amount:.2f}")
+    
+    # EKSEKUSI BUY CEPAT
+    buy_order = place_market_buy_order(symbol, investment_amount)
+    
+    if buy_order and buy_order.get('status') == 'FILLED':
+        # PROSES DATA CEPAT
+        executed_qty = float(buy_order.get('executedQty', 0))
+        
+        if buy_order.get('fills') and len(buy_order['fills']) > 0:
+            entry_price = float(buy_order['fills'][0]['price'])
+        else:
+            entry_price = current_price
+        
+        # SETUP TP/SL CEPAT
+        price_precision = get_price_precision(symbol)
+        entry_price = round(entry_price, price_precision)
+        take_profit = round(entry_price * (1 + TAKE_PROFIT_PCT), price_precision)
+        stop_loss = round(entry_price * (1 - STOP_LOSS_PCT), price_precision)
+        
+        active_position = {
+            'symbol': symbol,
+            'entry_price': entry_price,
+            'quantity': executed_qty,
+            'take_profit': take_profit,
+            'stop_loss': stop_loss,
+            'highest_price': entry_price,
+            'trailing_active': False,
+            'confidence': confidence,
+            'timestamp': time.time()
+        }
+        
+        # LOG CEPAT
+        log_position_opened(symbol, entry_price, executed_qty, take_profit, stop_loss, confidence)
+        
+        # Start monitoring - coba WebSocket dulu, fallback ke polling
+        monitoring_started = False
+        if ORDER_RUN:
+            monitoring_started = start_websocket_monitoring(symbol)
+            if not monitoring_started:
+                print("🔄 WebSocket failed, switching to polling...")
+                monitoring_started = start_polling_monitoring(symbol)
+        
+        print(f"   ✅ FAST EXECUTION COMPLETE: {symbol}")
+        return True
+    
+    print(f"   ❌ Fast execution failed for {symbol}")
+    failed_coins[symbol] = time.time()
+    return False
+
+# ==================== MAIN BOT LOGIC YANG DIPERBAIKI ====================
+def main_improved_fast():
+    """Main bot function dengan Telegram control dan error handling yang lebih baik"""
+    global current_investment, active_position, twm, BOT_RUNNING
+    
+    print("🚀 Starting BOT - TELEGRAM CONTROLLED VERSION")
+
+    # Load configuration pertama kali
+    update_global_variables_from_config()
+    
+    initialize_logging()
+    load_trade_history()
+    load_bot_state()
+    
     if not initialize_binance_client():
         print("❌ Gagal inisialisasi Binance client")
         return
     
-    # Get public IP info
+    # ✅ DAPATKAN IP PUBLIK UNTUK DEPLOY DI RENDER
     public_ip = get_public_ip()
-    if public_ip and SEND_TELEGRAM_NOTIFICATIONS:
-        ip_msg = f"🌐 <b>BOT STARTED SAFELY</b>\nIP: <code>{public_ip}</code>\nMode: {'LIVE' if ORDER_RUN else 'SIMULATION'}\nCoins: {len(COINS)}\nMax per scan: {MAX_COINS_PER_SCAN}"
-        send_telegram_message(ip_msg)
+    if public_ip:
+        print(f"🌐 Bot running from IP: {public_ip}")
     
-    consecutive_failed_scans = 0
-    last_scan_time = 0
+    # ✅ TEST KONEKSI BINANCE
+    try:
+        if not check_binance_connection():
+            print("❌ Binance connection test failed. Check your API keys and IP whitelist.")
+            return
+    except IPBannedException as e:
+        print(f"🔴 {e.message}")
+        if e.banned_until:
+            wait_until = e.banned_until / 1000  # Convert to seconds
+            wait_time = wait_until - time.time()
+            if wait_time > 0:
+                print(f"⏳ Waiting until ban is lifted ({wait_time:.0f}s)...")
+                time.sleep(wait_time)
+                print("🔄 Ban period over, restarting...")
+                return main_improved_fast()  # Restart bot
+        else:
+            # Unknown ban duration, wait 1 hour
+            print("⏳ Unknown ban duration, waiting 1 hour...")
+            time.sleep(3600)
+            print("🔄 Restarting after 1 hour wait...")
+            return main_improved_fast()
+    
+    startup_msg = f"🤖 <b>BOT STARTED - TELEGRAM CONTROL</b>\nCoins: {len(COINS)}\nMode: {'LIVE' if ORDER_RUN else 'SIMULATION'}\nStatus: MENUNGGU PERINTAH /start"
+    send_telegram_message(startup_msg)
+    
+    consecutive_errors = 0
+    last_feedback_check = 0
+    last_telegram_check = 0
+    last_status_log = 0
+    
+    print("✅ Bot siap. Gunakan Telegram untuk mengontrol (/start untuk mulai)")
     
     while True:
         try:
-            # Check Telegram commands (simple version)
-            if TELEGRAM_CONTROL_ENABLED and time.time() - last_scan_time > 10:
-                try:
-                    # Simple command check tanpa banyak request
-                    pass
-                except:
-                    pass
+            # CHECK TELEGRAM COMMANDS setiap 3 detik
+            current_time = time.time()
+            if current_time - last_telegram_check > 3:
+                if TELEGRAM_CONTROL_ENABLED:
+                    handle_telegram_command()
+                last_telegram_check = current_time
             
+            # Jika bot tidak running, tunggu saja
             if not BOT_RUNNING:
-                time.sleep(5)
+                time.sleep(1)
                 continue
             
-            # Cek jika IP banned untuk waktu lama
-            if time.time() < ip_protection['banned_until']:
-                remaining = ip_protection['banned_until'] - time.time()
-                if remaining > 300:  # 5 menit
-                    wait_msg = f"🔴 IP BANNED - Waiting {remaining/60:.1f} minutes"
-                    print(wait_msg)
-                    time.sleep(60)
-                    continue
+            # CEK PAUSE STATE - sistem adaptasi
+            if is_trading_paused():
+                time.sleep(DELAY_WHEN_PAUSED)
+                continue
             
-            # Rate limiting antara scans
-            time_since_last_scan = time.time() - last_scan_time
-            if time_since_last_scan < DELAY_BETWEEN_SCANS:
-                sleep_time = DELAY_BETWEEN_SCANS - time_since_last_scan
-                print(f"⏳ Waiting {sleep_time:.1f}s before next scan...")
-                time.sleep(sleep_time)
+            # CEK KONEKSI SETIAP LOOP
+            try:
+                client.ping()
+                consecutive_errors = 0
+            except Exception as e:
+                consecutive_errors += 1
+                print(f"❌ Koneksi error #{consecutive_errors}: {e}")
+                if consecutive_errors >= 3:
+                    print("💀 Koneksi mati, restart required")
+                    send_telegram_message("🔴 <b>KONEKSI BINANCE TERPUTUS</b>\nBot dihentikan otomatis.")
+                    BOT_RUNNING = False
+                    break
+                time.sleep(30)
+                continue
             
-            # Scan untuk sinyal
-            print(f"\n🕐 SAFE SCAN CYCLE #{int(time.time()/DELAY_BETWEEN_SCANS)}")
-            signals = safe_monitor_coins()
-            last_scan_time = time.time()
+            # PERIODIC FEEDBACK CHECK (setiap 5 menit)
+            if current_time - last_feedback_check > 300:  # 5 menit
+                trade_performance_feedback_loop()
+                last_feedback_check = current_time
+            
+            # LOG STATUS PERIODIC (setiap 10 menit)
+            if current_time - last_status_log > 600:  # 10 menit
+                status_msg = f"🔄 Bot masih berjalan | Modal: ${current_investment:.2f} | Trades: {len(trade_history)}"
+                write_log(status_msg)
+                last_status_log = current_time
+            
+            if active_position:
+                # Monitoring position aktif saja
+                current_price = get_current_price(active_position['symbol'])
+                if current_price:
+                    pnl_pct = (current_price - active_position['entry_price']) / active_position['entry_price'] * 100
+                    print(f"📊 {active_position['symbol']}: ${current_price:.6f} | PnL: {pnl_pct:+.2f}%")
+                    
+                    # Untuk simulasi, cek TP/SL
+                    if not ORDER_RUN:
+                        if current_price >= active_position['take_profit']:
+                            execute_market_sell(active_position['symbol'], active_position['quantity'], 
+                                              active_position['entry_price'], "TAKE PROFIT")
+                        elif current_price <= active_position['stop_loss']:
+                            execute_market_sell(active_position['symbol'], active_position['quantity'], 
+                                              active_position['entry_price'], "STOP LOSS")
+                
+                time.sleep(0.3)
+                continue
+            
+            # SCAN HINGGA ADA SINYAL - BERHENTI KETIKA KETEMU
+            print(f"\n🕐 Scanning for signals... (Threshold: {dynamic_threshold}%, Position: {POSITION_SIZING_PCT:.1%})")
+            signals = monitor_coins_until_signal()
             
             if signals:
-                # Process first signal
+                # EKSEKUSI CEPAT sinyal pertama
                 signal = signals[0]
-                print(f"⚡ PROCESSING SIGNAL: {signal['symbol']}")
-                
-                # Simple execution untuk mengurangi request
-                if ORDER_RUN:
-                    # Untuk live trading, place order sederhana
-                    investment = current_investment * POSITION_SIZING_PCT
-                    order = place_market_buy_order(signal['symbol'], investment)
-                    
-                    if order:
-                        print("✅ Order executed successfully!")
-                        consecutive_failed_scans = 0
-                    else:
-                        print("❌ Order execution failed")
-                        consecutive_failed_scans += 1
+                if fast_execute_signal(signal):
+                    print("✅ Trade executed successfully!")
                 else:
-                    # Simulation mode
-                    print("🧪 SIMULATION: Position opened")
-                    consecutive_failed_scans = 0
+                    print("❌ Execution failed, continuing scan...")
+                    time.sleep(2)
             else:
-                print("💤 No signals found")
-                consecutive_failed_scans += 1
-            
-            # Jika terlalu banyak failed scans, pause sebentar
-            if consecutive_failed_scans > 10:
-                print("⚠️ Many failed scans, pausing for 10 minutes")
-                time.sleep(600)
-                consecutive_failed_scans = 0
-            
-            # Print status periodically
-            if ip_protection['total_requests_today'] % 100 == 0:
-                print(f"📊 Request Stats: Today: {ip_protection['total_requests_today']}, Errors: {ip_protection['consecutive_errors']}")
+                # Tidak ada sinyal, tunggu sebentar lalu scan lagi
+                print(f"💤 No signals, waiting {DELAY_BETWEEN_SCANS}s...")
+                time.sleep(DELAY_BETWEEN_SCANS)
+                
+            save_bot_state()
                 
         except KeyboardInterrupt:
             print(f"\n🛑 Bot stopped by user")
-            if SEND_TELEGRAM_NOTIFICATIONS:
-                send_telegram_message("🛑 <b>BOT DIHENTIKAN OLEH PENGGUNA</b>")
+            send_telegram_message("🛑 <b>BOT DIHENTIKAN OLEH PENGGUNA</b>")
             BOT_RUNNING = False
             break
+        except IPBannedException as e:
+            print(f"🔴 {e.message}")
+            send_telegram_message(f"🔴 <b>IP BANNED</b>\n{e.message}")
+            if e.banned_until:
+                wait_until = e.banned_until / 1000
+                wait_time = wait_until - time.time()
+                if wait_time > 0:
+                    print(f"⏳ Waiting {wait_time:.0f}s for ban to be lifted...")
+                    time.sleep(wait_time)
+                    print("🔄 Restarting after ban...")
+            else:
+                print("⏳ Unknown ban duration, waiting 1 hour...")
+                time.sleep(3600)
+            # Continue loop setelah wait
+        except WebSocketError as e:
+            print(f"🔴 WebSocket critical error: {e}")
+            send_telegram_message(f"🔴 <b>WebSocket Error</b>\nSwitching to polling mode.")
+            stop_websocket_monitoring()
+            # Continue dengan polling mode
         except Exception as e:
             print(f"❌ Main loop error: {e}")
-            handle_binance_error(e)
-            time.sleep(30)
+            time.sleep(10)
     
-    print("✅ Safe bot stopped completely")
+    # Cleanup
+    stop_websocket_monitoring()
+    save_bot_state()
+    print("✅ Bot stopped completely")
 
-# ==================== RENDER COMPATIBILITY ====================
-def check_render_environment():
-    """Check if running on Render"""
-    return os.environ.get('RENDER', False)
-
-def run_background_worker():
-    """Run as background worker for Render"""
-    print("🔄 Running as Background Worker on Render...")
-    main_safe_bot()
-
-# ==================== MAIN EXECUTION ====================
 def main():
-    if check_render_environment():
-        print("🚀 Starting on Render...")
-        
-        # Start Flask di thread terpisah
-        flask_thread = threading.Thread(target=run_flask, daemon=True)
-        flask_thread.start()
-        print(f"✅ Flask started on port {os.environ.get('PORT')}")
-        
-        # Tunggu Flask fully loaded
-        time.sleep(3)
-        
-        # Jalankan bot trading di thread utama
-        print("🤖 Starting trading bot...")
-        main_safe_bot()
-    else:
-        print("🚀 Starting locally...")
-        main_safe_bot()
+    main_improved_fast()
 
+import threading, requests, time, random
+
+# ✅ Fungsi ping otomatis agar Render tidak tidur
+def keep_alive_ping():
+    """Keep-alive ping untuk Render agar tidak auto-sleep."""
+    while True:
+        try:
+            # Coba ping health endpoint jika ada
+            try:
+                requests.get("http://localhost:5000/health", timeout=5)
+            except:
+                # Jika tidak ada endpoint, cukup log saja
+                print("💓 Keep-alive heartbeat - Bot still running")
+            
+            time.sleep(300)  # setiap 5 menit
+        except Exception as e:
+            print("⚠️ Keep-alive error:", e)
+        time.sleep(300)  # setiap 5 menit
+
+# ✅ Worker utama dengan watchdog biar gak macet
+def safe_run_worker():
+    """Loop utama bot dengan proteksi error dan auto-restart."""
+    print("🔄 Running trading bot worker (safe mode)...")
+    
+    # Jeda awal untuk memastikan semua service sudah ready
+    time.sleep(5)
+    
+    restart_count = 0
+    max_restarts = 10
+    
+    while restart_count < max_restarts:
+        try:
+            print(f"🔄 Starting bot iteration #{restart_count + 1}")
+            main_improved_fast()
+            
+            # Jika bot berhenti normal (bukan error), tidak perlu restart
+            if not BOT_RUNNING:
+                print("🛑 Bot stopped normally via command")
+                break
+                
+        except IPBannedException as e:
+            restart_count += 1
+            if e.banned_until:
+                wait_until = e.banned_until / 1000
+                wait_time = wait_until - time.time()
+                if wait_time > 0:
+                    print(f"🔴 IP Banned. Waiting {wait_time:.0f}s until {time.ctime(wait_until)}")
+                    send_telegram_message(f"🔴 <b>IP Banned</b>\nBot will resume after {time.ctime(wait_until)}")
+                    time.sleep(wait_time)
+                else:
+                    time.sleep(3600)  # Wait 1 hour if ban time already passed
+            else:
+                wait_time = 3600  # 1 hour default
+                print(f"🔴 IP Banned. Waiting {wait_time}s")
+                send_telegram_message(f"🔴 <b>IP Banned</b>\nBot will resume after 1 hour")
+                time.sleep(wait_time)
+                
+        except Exception as e:
+            restart_count += 1
+            print(f"⚠️ Worker crashed (attempt {restart_count}/{max_restarts}): {e}")
+            
+            if "IP banned" in str(e) or "API" in str(e):
+                wait_time = min(300 * restart_count, 3600)  # Maksimal 1 jam
+                print(f"⏳ API issue detected, waiting {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                time.sleep(30)  # Tunggu 30 detik untuk error biasa
+        
+        # Reset BOT_RUNNING status untuk restart bersih
+        BOT_RUNNING = False
+        stop_websocket_monitoring()
+        
+    if restart_count >= max_restarts:
+        error_msg = f"🔴 <b>BOT CRASHED TOO MANY TIMES</b>\nRestarted {max_restarts} times. Manual intervention required."
+        send_telegram_message(error_msg)
+        print("💀 Bot crashed too many times, stopping...")
+
+
+# 🚀 Bagian utama: dijalankan hanya jika script dijalankan langsung
 if __name__ == "__main__":
-    main()
-
-
-
-
+    print("=" * 60)
+    print("🚀 ADVANCED TRADING BOT - 2TF (M15 + M5) + LRO STRATEGY")
+    print("=" * 60)
+    
+    # Check environment
+    is_render = check_render_environment()
+    
+    # Start health endpoint jika di Render
+    if is_render:
+        health_thread = threading.Thread(target=create_simple_health_endpoint, daemon=True)
+        health_thread.start()
+        print("🌐 Health endpoint started")
+    
+    # Start keep-alive thread
+    keep_alive_thread = threading.Thread(target=keep_alive_ping, daemon=True)
+    keep_alive_thread.start()
+    print("💓 Keep-alive thread started")
+    
+    # Jalankan bot worker
+    try:
+        safe_run_worker()
+    except KeyboardInterrupt:
+        print("\n🛑 Bot shutdown requested")
+        BOT_RUNNING = False
+        stop_websocket_monitoring()
+    except Exception as e:
+        print(f"💀 Fatal error: {e}")
+        send_telegram_message(f"🔴 <b>FATAL ERROR</b>\n{str(e)}")
+    
+    print("✅ Bot shutdown complete")
