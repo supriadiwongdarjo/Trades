@@ -25,9 +25,9 @@ API_SECRET = os.getenv('BINANCE_API_SECRET')
 INITIAL_INVESTMENT = float(os.getenv('INITIAL_INVESTMENT', '5.5'))
 ORDER_RUN = os.getenv('ORDER_RUN', 'False').lower() == 'true'
 
-# Trading Parameters
-TAKE_PROFIT_PCT = 0.0062
-STOP_LOSS_PCT = 0.0160
+# Trading Parameters - SESUAI PERMINTAAN
+TAKE_PROFIT_PCT = 0.0062  # 0.62%
+STOP_LOSS_PCT = 0.0160    # 1.6%
 TRAILING_STOP_ACTIVATION = 0.0040
 TRAILING_STOP_PCT = 0.0080
 
@@ -36,7 +36,7 @@ POSITION_SIZING_PCT = 0.4
 MAX_DRAWDOWN_PCT = 0.6
 ADAPTIVE_CONFIDENCE = True
 
-# PARAMETER TIMEFRAME
+# PARAMETER TIMEFRAME - SESUAI PERMINTAAN
 # Untuk timeframe 15 menit (M15)
 RSI_MIN_15M = 35
 RSI_MAX_15M = 65
@@ -48,18 +48,18 @@ MACD_SIGNAL_15M = 7
 LRO_PERIOD_15M = 20
 VOLUME_PERIOD_15M = 15
 
-# Untuk timeframe 5 menit (M5)
+# Untuk timeframe 5 menit (M5) - SESUAI PERMINTAAN
 RSI_MIN_5M = 35
 RSI_MAX_5M = 68
 EMA_SHORT_5M = 5
 EMA_LONG_5M = 20
 MACD_FAST_5M = 8
 MACD_SLOW_5M = 21
-MACD_SIGNAL_5M = 8
+MACD_SIGNAL_5M = 8  # SESUAI PERMINTAAN
 LRO_PERIOD_5M = 20
 VOLUME_PERIOD_5M = 10
 
-# Parameter umum
+# Parameter umum - SESUAI PERMINTAAN
 VOLUME_RATIO_MIN = 0.8
 
 # Telegram Configuration
@@ -138,16 +138,23 @@ EMA_ALPHA = 0.3
 MIN_POSITION_SIZING = 0.1  # Minimum 10%
 MAX_ADAPTATION_PERCENT = 0.25  # Maksimal perubahan 25%
 
-# ==================== DELAY CONFIGURATION ====================
-# Konfigurasi delay untuk menghindari ban dari Binance
-DELAY_BETWEEN_COINS = 1.2  # Delay 1.2 detik antara analisis coin
-DELAY_BETWEEN_REQUESTS = 0.5  # Delay 0.5 detik antara requests
-DELAY_AFTER_ERROR = 3.0  # Delay 3 detik setelah error
+# ==================== DELAY CONFIGURATION YANG DIPERBAIKI ====================
+# Konfigurasi delay untuk menghindari ban dari Binance - DITINGKATKAN
+DELAY_BETWEEN_COINS = 2.5  # Increased from 1.2 to 2.5 seconds
+DELAY_BETWEEN_REQUESTS = 1.0  # Increased from 0.5 to 1.0 seconds
+DELAY_AFTER_ERROR = 5.0  # Increased from 3.0 to 5.0 seconds
+DELAY_BETWEEN_SCANS = 10.0  # Delay antara scan cycle
+DELAY_WHEN_PAUSED = 5.0  # Delay saat trading paused
+
+# Rate limiting
+LAST_REQUEST_TIME = 0
+MIN_REQUEST_INTERVAL = 1.0  # Minimum 1 detik antara requests
 
 # Adjust for Render environment
 if os.environ.get('RENDER'):
-    DELAY_BETWEEN_COINS = 2.0
-    DELAY_BETWEEN_REQUESTS = 1.0
+    DELAY_BETWEEN_COINS = 3.0
+    DELAY_BETWEEN_REQUESTS = 1.5
+    DELAY_BETWEEN_SCANS = 15.0
 
 # ==================== FUNGSI UNTUK DEPLOY DI RENDER ====================
 def get_public_ip():
@@ -195,6 +202,19 @@ def get_public_ip():
         print(f"❌ Error getting public IP: {e}")
         return None
 
+# ==================== RATE LIMITING SYSTEM ====================
+def rate_limit():
+    """Implement rate limiting untuk menghindari ban Binance"""
+    global LAST_REQUEST_TIME
+    current_time = time.time()
+    elapsed = current_time - LAST_REQUEST_TIME
+    
+    if elapsed < MIN_REQUEST_INTERVAL:
+        sleep_time = MIN_REQUEST_INTERVAL - elapsed
+        time.sleep(sleep_time)
+    
+    LAST_REQUEST_TIME = time.time()
+
 # ==================== RENDER FIX - BACKGROUND WORKER ====================
 def run_background_worker():
     """Run as background worker for Render - no web server needed"""
@@ -234,13 +254,16 @@ def create_simple_health_endpoint():
         def run_flask():
             app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
         
-        flask_thread = threading.Thread(target=run_flask, daemon=False)
+        flask_thread = threading.Thread(target=run_flask, daemon=True)
         flask_thread.start()
+        return True
         
     except ImportError:
         print("⚠️ Flask not installed, running as pure background worker")
+        return False
     except Exception as e:
         print(f"⚠️ Health endpoint error: {e}")
+        return False
 
 def check_render_environment():
     """Check if running on Render and adjust configuration accordingly"""
@@ -248,10 +271,11 @@ def check_render_environment():
     if render_env:
         print("🚀 Running on Render cloud platform")
         # Adjust delays for Render environment
-        global DELAY_BETWEEN_COINS, DELAY_BETWEEN_REQUESTS
-        DELAY_BETWEEN_COINS = 2.0  # Increase delays for Render
-        DELAY_BETWEEN_REQUESTS = 1.0
-        print(f"🔧 Adjusted delays for Render: {DELAY_BETWEEN_COINS}s between coins")
+        global DELAY_BETWEEN_COINS, DELAY_BETWEEN_REQUESTS, DELAY_BETWEEN_SCANS
+        DELAY_BETWEEN_COINS = 3.0  # Increase delays for Render
+        DELAY_BETWEEN_REQUESTS = 1.5
+        DELAY_BETWEEN_SCANS = 15.0
+        print(f"🔧 Adjusted delays for Render environment")
         return True
     return False
 
@@ -269,11 +293,6 @@ def check_binance_connection():
         local_time = int(time.time() * 1000)
         time_diff = server_time['serverTime'] - local_time
         print(f"⏰ Server time difference: {time_diff} ms")
-        
-        # Test mendapatkan price untuk satu symbol
-        btc_price = get_current_price('BTCUSDT')
-        if btc_price:
-            print(f"💰 BTC price: ${btc_price:.2f}")
         
         return True
         
@@ -299,8 +318,8 @@ def load_config():
     """Load configuration from file"""
     default_config = {
         'trading_params': {
-            'TAKE_PROFIT_PCT': 0.0061,
-            'STOP_LOSS_PCT': 0.0160,
+            'TAKE_PROFIT_PCT': 0.0062,  # 0.62%
+            'STOP_LOSS_PCT': 0.0160,     # 1.6%
             'TRAILING_STOP_ACTIVATION': 0.0040,
             'TRAILING_STOP_PCT': 0.0080,
             'POSITION_SIZING_PCT': 0.4,
@@ -312,7 +331,7 @@ def load_config():
             'RSI_MAX_15M': 65,
             'EMA_SHORT_15M': 12,
             'EMA_LONG_15M': 26,
-            'MACD_FAST_15M': 8,
+            'MACD_FAST_15M': 7,
             'MACD_SLOW_15M': 21,
             'MACD_SIGNAL_15M': 7,
             'LRO_PERIOD_15M': 20,
@@ -323,10 +342,10 @@ def load_config():
             'EMA_LONG_5M': 20,
             'MACD_FAST_5M': 8,
             'MACD_SLOW_5M': 21,
-            'MACD_SIGNAL_5M': 8,
+            'MACD_SIGNAL_5M': 8,  # SESUAI PERMINTAAN
             'LRO_PERIOD_5M': 20,
             'VOLUME_PERIOD_5M': 10,
-            'VOLUME_RATIO_MIN': 0.8
+            'VOLUME_RATIO_MIN': 0.8  # SESUAI PERMINTAAN
         }
     }
     
@@ -430,18 +449,17 @@ def process_telegram_command(command, chat_id, update_id):
             if not BOT_RUNNING:
                 BOT_RUNNING = True
                 send_telegram_message("🤖 <b>BOT DIAKTIFKAN</b>\nBot trading sekarang berjalan.")
+                print("✅ Bot started via Telegram command")
             else:
                 send_telegram_message("⚠️ Bot sudah berjalan.")
                 
         elif command == '/stop':
             if BOT_RUNNING:
-                BOT_RUNNING = False  # ✅ LANGSUNG SET FALSE - INI YANG MEMBATALKAN LOOP
+                BOT_RUNNING = False
                 # Stop WebSocket monitoring
                 stop_websocket_monitoring()
                 send_telegram_message("🛑 <b>BOT DIHENTIKAN</b>\nTrading dihentikan.")
-                
-                # ✅ TAMBAHKAN LOG INI UNTUK KONFIRMASI
-                print("🛑 BOT STOPPED via Telegram command")
+                print("🛑 Bot stopped via Telegram command")
             else:
                 send_telegram_message("⚠️ Bot sudah dalam keadaan berhenti.")
                 
@@ -489,9 +507,14 @@ def send_bot_status(chat_id):
     )
     
     if active_position:
-        pnl_pct = (get_current_price(active_position['symbol']) - active_position['entry_price']) / active_position['entry_price'] * 100
-        status_msg += f"│ Posisi Aktif: {active_position['symbol']}\n"
-        status_msg += f"│ PnL: {pnl_pct:+.2f}%\n"
+        current_price = get_current_price(active_position['symbol'])
+        if current_price:
+            pnl_pct = (current_price - active_position['entry_price']) / active_position['entry_price'] * 100
+            status_msg += f"│ Posisi Aktif: {active_position['symbol']}\n"
+            status_msg += f"│ PnL: {pnl_pct:+.2f}%\n"
+        else:
+            status_msg += f"│ Posisi Aktif: {active_position['symbol']}\n"
+            status_msg += f"│ PnL: Menunggu data...\n"
     else:
         status_msg += "│ Posisi Aktif: Tidak ada\n"
         
@@ -661,8 +684,11 @@ def send_telegram_message(message):
 def write_log(entry):
     """Write trading log to file"""
     try:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_entry = f"[{timestamp}] {entry}"
         with open(LOG_FILE, 'a', encoding='utf-8') as f:
-            f.write(entry + '\n')
+            f.write(log_entry + '\n')
+        print(log_entry)
     except Exception as e:
         print(f"❌ Error writing to log file: {e}")
 
@@ -726,7 +752,7 @@ def log_position_closed(symbol, entry_price, exit_price, quantity, exit_type):
         winrate = calculate_winrate()
         total_trades = len(trade_history)
         
-        log_entry = (f"[{timestamp}] 📉 POSITION CLOSED | {symbol} | "
+        log_entry = (f"📉 POSITION CLOSED | {symbol} | "
                     f"Exit: {exit_type} | Entry: ${entry_price:.6f} | Exit: ${exit_price:.6f} | "
                     f"PnL: ${pnl:.4f} ({pnl_pct:+.2f}%) | New Capital: ${current_investment:.2f}")
         
@@ -757,12 +783,10 @@ def log_position_closed(symbol, entry_price, exit_price, quantity, exit_type):
 def log_position_opened(symbol, entry_price, quantity, take_profit, stop_loss, confidence):
     """Log when position is opened"""
     try:
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
         tp_pct = ((take_profit - entry_price) / entry_price) * 100
         sl_pct = ((entry_price - stop_loss) / entry_price) * 100
         
-        log_entry = (f"[{timestamp}] 📈 POSITION OPENED | {symbol} | "
+        log_entry = (f"📈 POSITION OPENED | {symbol} | "
                     f"Entry: ${entry_price:.6f} | Qty: {quantity:.6f} | "
                     f"TP: ${take_profit:.6f} (+{tp_pct:.2f}%) | SL: ${stop_loss:.6f} (-{sl_pct:.2f}%) | "
                     f"Confidence: {confidence:.1f}% | Capital: ${current_investment:.2f}")
@@ -794,7 +818,7 @@ def load_trade_history():
         if os.path.exists(TRADE_HISTORY_FILE):
             with open(TRADE_HISTORY_FILE, 'r') as f:
                 trade_history = json.load(f)
-        print(f"✅ Loaded {len(trade_history)} previous trades")
+            print(f"✅ Loaded {len(trade_history)} previous trades")
     except Exception as e:
         print(f"❌ Error loading trade history: {e}")
         trade_history = []
@@ -1028,35 +1052,23 @@ def initialize_binance_client():
     """Initialize Binance client with error handling"""
     global client
     try:
-        client = Client(API_KEY, API_SECRET)
+        client = Client(API_KEY, API_SECRET, {"timeout": 30})
         print("✅ Binance client initialized")
+        
+        # Test koneksi
+        client.ping()
+        print("✅ Binance connection test successful")
         return True
+        
     except Exception as e:
         print(f"❌ Failed to initialize Binance client: {e}")
-        send_telegram_message("Jeda Sisa 720 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 660 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 600 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 540 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 480 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 420 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 360 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 300 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 240 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 180 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 120 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 60 Detik")
-        time.sleep(60)
+        
+        # Tidak perlu jeda panjang, cukup beri pesan error
+        error_msg = f"❌ Binance initialization failed: {str(e)}"
+        print(error_msg)
+        if SEND_TELEGRAM_NOTIFICATIONS:
+            send_telegram_message(f"🔴 <b>BINANCE INIT FAILED</b>\n{error_msg}")
+        
         return False
 
 def sync_binance_time():
@@ -1074,6 +1086,7 @@ def sync_binance_time():
 def get_symbol_info(symbol):
     """Get symbol information for price and quantity precision"""
     try:
+        rate_limit()
         info = client.get_symbol_info(symbol)
         return info
     except Exception as e:
@@ -1180,6 +1193,7 @@ def round_step_size(quantity, symbol):
 def get_current_price(symbol):
     """Get current price with proper formatting"""
     try:
+        rate_limit()
         ticker = client.get_symbol_ticker(symbol=symbol)
         price = float(ticker['price'])
         precision = get_price_precision(symbol)
@@ -1302,6 +1316,8 @@ def calculate_volume_profile(volumes, period=20):
 def get_klines_data(symbol, interval, limit=50):
     """Get klines data dengan processing yang benar"""
     try:
+        rate_limit()
+        
         # Tambahkan retry mechanism
         for attempt in range(3):
             try:
@@ -1350,6 +1366,7 @@ def get_two_timeframe_data(symbol):
         
         print(f"   📊 Fetching data for {symbol}...")
         data_15m = get_klines_data(symbol, Client.KLINE_INTERVAL_15MINUTE, 40)
+        time.sleep(DELAY_BETWEEN_REQUESTS)  # Delay antara timeframe
         data_5m = get_klines_data(symbol, Client.KLINE_INTERVAL_5MINUTE, 40)
         
         # Validasi data yang diterima
@@ -1600,6 +1617,7 @@ def place_market_buy_order(symbol, investment_amount):
         free_balance = 0  # ✅ INISIALISASI DULU
         if ORDER_RUN:
             try:
+                rate_limit()
                 balance = client.get_asset_balance(asset='USDT')
                 free_balance = float(balance['free'])
                 if free_balance < investment_amount:
@@ -1681,6 +1699,7 @@ def place_market_buy_order(symbol, investment_amount):
             print(f"❌ Still below required minimum after rounding: ${final_order_value:.2f} < ${required_minimum:.2f}")
             return None
         
+        rate_limit()
         order = client.order_market_buy(
             symbol=symbol,
             quantity=precise_quantity
@@ -1713,6 +1732,7 @@ def execute_market_sell(symbol, quantity, entry_price, exit_type):
         if ORDER_RUN:
             asset = symbol.replace('USDT', '')
             try:
+                rate_limit()
                 balance_info = client.get_asset_balance(asset=asset)
                 if balance_info:
                     available_balance = float(balance_info['free'])
@@ -1748,6 +1768,7 @@ def execute_market_sell(symbol, quantity, entry_price, exit_type):
             active_position = None
             return False
 
+        rate_limit()
         sell_order = client.order_market_sell(
             symbol=symbol,
             quantity=precise_quantity
@@ -2122,12 +2143,6 @@ def main_improved_fast():
     
     if not initialize_binance_client():
         print("❌ Gagal inisialisasi Binance client")
-        send_telegram_message("Jeda Sisa 180 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 120 Detik")
-        time.sleep(60)
-        send_telegram_message("Jeda Sisa 60 Detik")
-        time.sleep(60)
         return
     
     # ✅ DAPATKAN IP PUBLIK UNTUK DEPLOY DI RENDER
@@ -2146,6 +2161,7 @@ def main_improved_fast():
     consecutive_errors = 0
     last_feedback_check = 0
     last_telegram_check = 0
+    last_status_log = 0
     
     print("✅ Bot siap. Gunakan Telegram untuk mengontrol (/start untuk mulai)")
     
@@ -2165,7 +2181,7 @@ def main_improved_fast():
             
             # CEK PAUSE STATE - sistem adaptasi
             if is_trading_paused():
-                time.sleep(5)
+                time.sleep(DELAY_WHEN_PAUSED)
                 continue
             
             # CEK KONEKSI SETIAP LOOP
@@ -2173,7 +2189,6 @@ def main_improved_fast():
                 client.ping()
                 consecutive_errors = 0
             except Exception as e:
-                break
                 consecutive_errors += 1
                 print(f"❌ Koneksi error #{consecutive_errors}: {e}")
                 if consecutive_errors >= 3:
@@ -2181,7 +2196,6 @@ def main_improved_fast():
                     send_telegram_message("🔴 <b>KONEKSI BINANCE TERPUTUS</b>\nBot dihentikan otomatis.")
                     BOT_RUNNING = False
                     break
-                break
                 time.sleep(30)
                 continue
             
@@ -2189,6 +2203,12 @@ def main_improved_fast():
             if current_time - last_feedback_check > 300:  # 5 menit
                 trade_performance_feedback_loop()
                 last_feedback_check = current_time
+            
+            # LOG STATUS PERIODIC (setiap 10 menit)
+            if current_time - last_status_log > 600:  # 10 menit
+                status_msg = f"🔄 Bot masih berjalan | Modal: ${current_investment:.2f} | Trades: {len(trade_history)}"
+                write_log(status_msg)
+                last_status_log = current_time
             
             if active_position:
                 # Monitoring position aktif saja
@@ -2223,8 +2243,8 @@ def main_improved_fast():
                     time.sleep(2)
             else:
                 # Tidak ada sinyal, tunggu sebentar lalu scan lagi
-                print("💤 No signals, waiting 3s...")
-                time.sleep(3)
+                print(f"💤 No signals, waiting {DELAY_BETWEEN_SCANS}s...")
+                time.sleep(DELAY_BETWEEN_SCANS)
                 
             save_bot_state()
                 
@@ -2252,56 +2272,89 @@ def keep_alive_ping():
     """Keep-alive ping untuk Render agar tidak auto-sleep."""
     while True:
         try:
-            requests.get("https://trades-9rpg.onrender.com/health")
-            print("💓 Keep-alive ping sent.")
+            # Coba ping health endpoint jika ada
+            try:
+                requests.get("http://localhost:5000/health", timeout=5)
+            except:
+                # Jika tidak ada endpoint, cukup log saja
+                print("💓 Keep-alive heartbeat - Bot still running")
+            
+            time.sleep(300)  # setiap 5 menit
         except Exception as e:
             print("⚠️ Keep-alive error:", e)
-        time.sleep(600)  # setiap 10 menit
-
-# ✅ Jalankan Flask health endpoint di thread terpisah
-def run_health_server():
-    """Menjalankan Flask untuk endpoint /health agar Render mendeteksi port terbuka."""
-    create_simple_health_endpoint()
+        time.sleep(300)  # setiap 5 menit
 
 # ✅ Worker utama dengan watchdog biar gak macet
 def safe_run_worker():
     """Loop utama bot dengan proteksi error dan auto-restart."""
     print("🔄 Running trading bot worker (safe mode)...")
-    while True:
+    
+    # Jeda awal untuk memastikan semua service sudah ready
+    time.sleep(5)
+    
+    restart_count = 0
+    max_restarts = 10
+    
+    while restart_count < max_restarts:
         try:
-            run_background_worker()
+            print(f"🔄 Starting bot iteration #{restart_count + 1}")
+            main_improved_fast()
+            
+            # Jika bot berhenti normal (bukan error), tidak perlu restart
+            if not BOT_RUNNING:
+                print("🛑 Bot stopped normally via command")
+                break
+                
         except Exception as e:
-            print("⚠️ Worker crashed, restarting:", e)
-            if "IP banned" in str(e):
-                time.sleep(900)  # tunggu 15 menit biar unban
+            restart_count += 1
+            print(f"⚠️ Worker crashed (attempt {restart_count}/{max_restarts}): {e}")
+            
+            if "IP banned" in str(e) or "API" in str(e):
+                wait_time = min(300 * restart_count, 3600)  # Maksimal 1 jam
+                print(f"⏳ API issue detected, waiting {wait_time} seconds...")
+                time.sleep(wait_time)
             else:
-                time.sleep(5)
+                time.sleep(30)  # Tunggu 30 detik untuk error biasa
+        
+        # Reset BOT_RUNNING status untuk restart bersih
+        BOT_RUNNING = False
+        stop_websocket_monitoring()
+        
+    if restart_count >= max_restarts:
+        error_msg = f"🔴 <b>BOT CRASHED TOO MANY TIMES</b>\nRestarted {max_restarts} times. Manual intervention required."
+        send_telegram_message(error_msg)
+        print("💀 Bot crashed too many times, stopping...")
 
 
 # 🚀 Bagian utama: dijalankan hanya jika script dijalankan langsung
 if __name__ == "__main__":
-    check_render_environment()
-    threading.Thread(target=run_health_server, daemon=False).start()
-    threading.Thread(target=keep_alive_ping, daemon=True).start()
-
-    # kirim info hanya sekali saat star
-
-    safe_run_worker()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    print("=" * 60)
+    print("🚀 ADVANCED TRADING BOT - 2TF (M15 + M5) + LRO STRATEGY")
+    print("=" * 60)
+    
+    # Check environment
+    is_render = check_render_environment()
+    
+    # Start health endpoint jika di Render
+    if is_render:
+        health_thread = threading.Thread(target=create_simple_health_endpoint, daemon=True)
+        health_thread.start()
+        print("🌐 Health endpoint started")
+    
+    # Start keep-alive thread
+    keep_alive_thread = threading.Thread(target=keep_alive_ping, daemon=True)
+    keep_alive_thread.start()
+    print("💓 Keep-alive thread started")
+    
+    # Jalankan bot worker
+    try:
+        safe_run_worker()
+    except KeyboardInterrupt:
+        print("\n🛑 Bot shutdown requested")
+        BOT_RUNNING = False
+        stop_websocket_monitoring()
+    except Exception as e:
+        print(f"💀 Fatal error: {e}")
+        send_telegram_message(f"🔴 <b>FATAL ERROR</b>\n{str(e)}")
+    
+    print("✅ Bot shutdown complete")
