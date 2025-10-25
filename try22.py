@@ -14,33 +14,56 @@ from dotenv import load_dotenv
 import subprocess
 import io
 import random
+# from flask import Flask, jsonify
+# import threading
+
+# # ==================== FLASK APP UNTUK RENDER ====================
+# app = Flask(__name__)
+
+# @app.route('/')
+# def home():
+#     return jsonify({
+#         "status": "Bot is running",
+#         "timestamp": datetime.now().isoformat(),
+#         "service": "Safe Trading Bot - Anti IP Banned"
+#     })
+
+# @app.route('/health')
+# def health():
+#     return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+
+# @app.route('/status')
+# def status():
+#     global BOT_RUNNING, current_investment, ip_protection
+#     return jsonify({
+#         "bot_running": BOT_RUNNING,
+#         "current_investment": current_investment,
+#         "requests_today": ip_protection.get('total_requests_today', 0),
+#         "banned_until": ip_protection.get('banned_until', 0)
+#     })
+
 from flask import Flask, jsonify
 import threading
 
-# ==================== FLASK APP UNTUK RENDER ====================
 app = Flask(__name__)
 
+# Health check yang sangat sederhana
 @app.route('/')
 def home():
     return jsonify({
-        "status": "Bot is running",
-        "timestamp": datetime.now().isoformat(),
-        "service": "Safe Trading Bot - Anti IP Banned"
+        "status": "running",
+        "service": "Trading Bot",
+        "timestamp": datetime.now().isoformat()
     })
 
 @app.route('/health')
 def health():
-    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+    return jsonify({"status": "healthy"})
 
-@app.route('/status')
-def status():
-    global BOT_RUNNING, current_investment, ip_protection
-    return jsonify({
-        "bot_running": BOT_RUNNING,
-        "current_investment": current_investment,
-        "requests_today": ip_protection.get('total_requests_today', 0),
-        "banned_until": ip_protection.get('banned_until', 0)
-    })
+def run_flask():
+    """Jalankan Flask di port yang ditentukan Render"""
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 def run_flask_app():
     """Jalankan Flask app untuk Render.com compatibility"""
@@ -882,23 +905,27 @@ def run_background_worker():
 
 # ==================== MAIN EXECUTION ====================
 def main():
-    # Start Flask server untuk Render.com
-    start_flask_server()
-    
-    # Tunggu sebentar untuk memastikan Flask sudah running
-    time.sleep(2)
-    
     if check_render_environment():
-        print("🚀 Starting on Render as Background Worker with Flask")
-        # Di Render, jalankan bot setelah Flask sudah ready
+        print("🚀 Starting on Render...")
+        
+        # Start Flask di thread terpisah
+        flask_thread = threading.Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        print(f"✅ Flask started on port {os.environ.get('PORT')}")
+        
+        # Tunggu Flask fully loaded
         time.sleep(3)
-        run_background_worker()
+        
+        # Jalankan bot trading di thread utama
+        print("🤖 Starting trading bot...")
+        main_safe_bot()
     else:
-        print("🚀 Starting Safe Trading Bot Locally with Flask")
+        print("🚀 Starting locally...")
         main_safe_bot()
 
 if __name__ == "__main__":
     main()
+
 
 
 
