@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 import subprocess
 import io
 import threading
+import re
 
 # Load environment variables dari file .env
 load_dotenv()
@@ -101,6 +102,8 @@ buy_signals = []
 trade_history = []
 client = None
 twm = None
+websocket_restart_attempts = 0
+MAX_WEBSOCKET_RESTARTS = 3
 
 # Sistem Adaptasi
 market_state = {
@@ -140,21 +143,34 @@ MAX_ADAPTATION_PERCENT = 0.25  # Maksimal perubahan 25%
 
 # ==================== DELAY CONFIGURATION YANG DIPERBAIKI ====================
 # Konfigurasi delay untuk menghindari ban dari Binance - DITINGKATKAN
-DELAY_BETWEEN_COINS = 2.5  # Increased from 1.2 to 2.5 seconds
-DELAY_BETWEEN_REQUESTS = 1.0  # Increased from 0.5 to 1.0 seconds
-DELAY_AFTER_ERROR = 5.0  # Increased from 3.0 to 5.0 seconds
-DELAY_BETWEEN_SCANS = 10.0  # Delay antara scan cycle
-DELAY_WHEN_PAUSED = 5.0  # Delay saat trading paused
+DELAY_BETWEEN_COINS = 3.0  # Increased from 2.5 to 3.0 seconds
+DELAY_BETWEEN_REQUESTS = 1.5  # Increased from 1.0 to 1.5 seconds
+DELAY_AFTER_ERROR = 10.0  # Increased from 5.0 to 10.0 seconds
+DELAY_BETWEEN_SCANS = 20.0  # Increased from 10.0 to 20.0 seconds
+DELAY_WHEN_PAUSED = 10.0  # Increased from 5.0 to 10.0 seconds
 
 # Rate limiting
 LAST_REQUEST_TIME = 0
-MIN_REQUEST_INTERVAL = 1.0  # Minimum 1 detik antara requests
+MIN_REQUEST_INTERVAL = 2.0  # Increased from 1.0 to 2.0 seconds
 
 # Adjust for Render environment
 if os.environ.get('RENDER'):
-    DELAY_BETWEEN_COINS = 3.0
-    DELAY_BETWEEN_REQUESTS = 1.5
-    DELAY_BETWEEN_SCANS = 15.0
+    DELAY_BETWEEN_COINS = 4.0
+    DELAY_BETWEEN_REQUESTS = 2.5
+    DELAY_BETWEEN_SCANS = 30.0
+    MIN_REQUEST_INTERVAL = 3.0
+
+# ==================== CUSTOM EXCEPTION CLASSES ====================
+class IPBannedException(Exception):
+    """Custom exception untuk IP banned dari Binance"""
+    def __init__(self, message, banned_until=None):
+        super().__init__(message)
+        self.banned_until = banned_until
+        self.message = message
+
+class WebSocketError(Exception):
+    """Custom exception untuk WebSocket errors"""
+    pass
 
 # ==================== FUNGSI UNTUK DEPLOY DI RENDER ====================
 def get_public_ip():
@@ -202,18 +218,27 @@ def get_public_ip():
         print(f"❌ Error getting public IP: {e}")
         return None
 
-# ==================== RATE LIMITING SYSTEM ====================
+# ==================== RATE LIMITING SYSTEM YANG DIPERBAIKI ====================
 def rate_limit():
-    """Implement rate limiting untuk menghindari ban Binance"""
+    """Implement rate limiting yang lebih ketat untuk menghindari ban Binance"""
     global LAST_REQUEST_TIME
     current_time = time.time()
     elapsed = current_time - LAST_REQUEST_TIME
     
     if elapsed < MIN_REQUEST_INTERVAL:
         sleep_time = MIN_REQUEST_INTERVAL - elapsed
-        time.sleep(sleep_time)
+        if sleep_time > 0:
+            print(f"⏳ Rate limiting: waiting {sleep_time:.2f}s")
+            time.sleep(sleep_time)
     
     LAST_REQUEST_TIME = time.time()
+
+def smart_delay(base_delay):
+    """Smart delay dengan variasi acak untuk menghindari pola request"""
+    jitter = base_delay * 0.2  # 20% jitter
+    actual_delay = base_delay + random.uniform(-jitter, jitter)
+    actual_delay = max(base_delay * 0.5, actual_delay)  # Minimal 50% dari base delay
+    time.sleep(actual_delay)
 
 # ==================== RENDER FIX - BACKGROUND WORKER ====================
 def run_background_worker():
@@ -271,10 +296,11 @@ def check_render_environment():
     if render_env:
         print("🚀 Running on Render cloud platform")
         # Adjust delays for Render environment
-        global DELAY_BETWEEN_COINS, DELAY_BETWEEN_REQUESTS, DELAY_BETWEEN_SCANS
-        DELAY_BETWEEN_COINS = 3.0  # Increase delays for Render
-        DELAY_BETWEEN_REQUESTS = 1.5
-        DELAY_BETWEEN_SCANS = 15.0
+        global DELAY_BETWEEN_COINS, DELAY_BETWEEN_REQUESTS, DELAY_BETWEEN_SCANS, MIN_REQUEST_INTERVAL
+        DELAY_BETWEEN_COINS = 4.0  # Increase delays for Render
+        DELAY_BETWEEN_REQUESTS = 2.5
+        DELAY_BETWEEN_SCANS = 30.0
+        MIN_REQUEST_INTERVAL = 3.0
         print(f"🔧 Adjusted delays for Render environment")
         return True
     return False
@@ -299,17 +325,36 @@ def check_binance_connection():
     except Exception as e:
         print(f"❌ Binance connection test failed: {e}")
         
-        # Kirim error ke Telegram
-        if SEND_TELEGRAM_NOTIFICATIONS:
-            error_msg = (
-                f"🔴 <b>BINANCE CONNECTION FAILED</b>\n"
-                f"Error: {str(e)}\n"
-                f"⚠️ Pastikan:\n"
-                f"• IP sudah di-whitelist di Binance\n"
-                f"• API Key dan Secret benar\n"
-                f"• Tidak ada IP restriction lain"
-            )
-            send_telegram_message(error_msg)
+        # Cek jika ini IP banned error
+        if "IP banned" in str(e) or "WAY_TOO_MUCH_REQUEST" in str(e):
+            # Extract ban time dari error message
+            ban_match = re.search(r'IP banned until (\d+)', str(e))
+            if ban_match:
+                ban_until = int(ban_match.group(1))
+                ban_time = datetime.fromtimestamp(ban_until/1000).strftime('%Y-%m-%d %H:%M:%S')
+                error_msg = f"🔴 IP BANNED until {ban_time}"
+                print(error_msg)
+                if SEND_TELEGRAM_NOTIFICATIONS:
+                    send_telegram_message(f"🔴 <b>IP BANNED BY BINANCE</b>\nUntil: {ban_time}\nBot will wait until ban is lifted.")
+                raise IPBannedException(error_msg, ban_until)
+            else:
+                error_msg = "🔴 IP BANNED (unknown duration)"
+                print(error_msg)
+                if SEND_TELEGRAM_NOTIFICATIONS:
+                    send_telegram_message("🔴 <b>IP BANNED BY BINANCE</b>\nUnknown duration. Bot will wait 1 hour.")
+                raise IPBannedException(error_msg)
+        else:
+            # Kirim error ke Telegram untuk error lainnya
+            if SEND_TELEGRAM_NOTIFICATIONS:
+                error_msg = (
+                    f"🔴 <b>BINANCE CONNECTION FAILED</b>\n"
+                    f"Error: {str(e)}\n"
+                    f"⚠️ Pastikan:\n"
+                    f"• IP sudah di-whitelist di Binance\n"
+                    f"• API Key dan Secret benar\n"
+                    f"• Tidak ada IP restriction lain"
+                )
+                send_telegram_message(error_msg)
         
         return False
 
@@ -899,7 +944,7 @@ def update_dynamic_threshold():
         dynamic_threshold = max(30, dynamic_threshold - 1)  # MINIMAL 30
         print(f"📊 Winrate tinggi ({winrate:.1%}), turunkan threshold ke {dynamic_threshold}")
 
-# ==================== BINANCE UTILITIES ====================
+# ==================== BINANCE UTILITIES YANG DIPERBAIKI ====================
 def trade_performance_feedback_loop():
     """Adaptive feedback loop - panggil setelah trade ditutup atau periodik"""
     global recent_trades, performance_state, dynamic_threshold, POSITION_SIZING_PCT, current_investment
@@ -1049,7 +1094,7 @@ def is_trading_paused():
     return False
 
 def initialize_binance_client():
-    """Initialize Binance client with error handling"""
+    """Initialize Binance client dengan error handling yang lebih baik"""
     global client
     try:
         client = Client(API_KEY, API_SECRET, {"timeout": 30})
@@ -1063,11 +1108,30 @@ def initialize_binance_client():
     except Exception as e:
         print(f"❌ Failed to initialize Binance client: {e}")
         
-        # Tidak perlu jeda panjang, cukup beri pesan error
-        error_msg = f"❌ Binance initialization failed: {str(e)}"
-        print(error_msg)
-        if SEND_TELEGRAM_NOTIFICATIONS:
-            send_telegram_message(f"🔴 <b>BINANCE INIT FAILED</b>\n{error_msg}")
+        # Cek jika ini IP banned error
+        if "IP banned" in str(e) or "WAY_TOO_MUCH_REQUEST" in str(e):
+            # Extract ban time dari error message
+            ban_match = re.search(r'IP banned until (\d+)', str(e))
+            if ban_match:
+                ban_until = int(ban_match.group(1))
+                ban_time = datetime.fromtimestamp(ban_until/1000).strftime('%Y-%m-%d %H:%M:%S')
+                error_msg = f"🔴 IP BANNED until {ban_time}"
+                print(error_msg)
+                if SEND_TELEGRAM_NOTIFICATIONS:
+                    send_telegram_message(f"🔴 <b>IP BANNED BY BINANCE</b>\nUntil: {ban_time}\nBot will wait until ban is lifted.")
+                raise IPBannedException(error_msg, ban_until)
+            else:
+                error_msg = "🔴 IP BANNED (unknown duration)"
+                print(error_msg)
+                if SEND_TELEGRAM_NOTIFICATIONS:
+                    send_telegram_message("🔴 <b>IP BANNED BY BINANCE</b>\nUnknown duration. Bot will wait 1 hour.")
+                raise IPBannedException(error_msg)
+        else:
+            # Untuk error lainnya, tidak perlu jeda panjang
+            error_msg = f"❌ Binance initialization failed: {str(e)}"
+            print(error_msg)
+            if SEND_TELEGRAM_NOTIFICATIONS:
+                send_telegram_message(f"🔴 <b>BINANCE INIT FAILED</b>\n{error_msg}")
         
         return False
 
@@ -1558,7 +1622,7 @@ def get_precise_quantity(symbol, investment_amount):
         # Untuk simulasi, gunakan quantity sederhana
         if not ORDER_RUN:
             # Round to 6 decimal places for simulation
-            precise_quantity = round(theoretical_quantity * 0.998, 6)
+            precise_quantity = round(theoretical_quantity * 0.999, 6)
             print(f"   🔧 SIMULATION Qty: {precise_quantity} (dari ${investment_amount} / ${current_price})")
             return precise_quantity
             
@@ -1871,14 +1935,20 @@ def check_trailing_stop(current_price, symbol):
     
     return False
 
-# ==================== WEBSOCKET MANAGEMENT ====================
+# ==================== WEBSOCKET MANAGEMENT YANG DIPERBAIKI ====================
 def handle_websocket_message(msg):
-    """Handle WebSocket messages untuk real-time monitoring"""
-    global active_position
+    """Handle WebSocket messages untuk real-time monitoring dengan error handling"""
+    global active_position, websocket_restart_attempts
     
     try:
         if msg['e'] == 'error':
-            print(f"WebSocket error: {msg}")
+            error_msg = f"WebSocket error: {msg}"
+            print(f"❌ {error_msg}")
+            
+            # Cek jika ini IP banned error
+            if "IP banned" in str(msg) or "WAY_TOO_MUCH_REQUEST" in str(msg):
+                raise WebSocketError("IP banned detected in WebSocket")
+            
             return
             
         symbol = msg['s']
@@ -1935,11 +2005,14 @@ def handle_websocket_message(msg):
             return
                     
     except Exception as e:
-        print(f"❌ WebSocket error: {e}")
+        print(f"❌ WebSocket message handling error: {e}")
+        # Restart WebSocket jika error critical
+        if "IP banned" in str(e) or "WAY_TOO_MUCH_REQUEST" in str(e):
+            raise WebSocketError(f"Critical WebSocket error: {e}")
 
 def start_websocket_monitoring(symbol):
-    """Start WebSocket monitoring for symbol"""
-    global twm
+    """Start WebSocket monitoring for symbol dengan error handling"""
+    global twm, websocket_restart_attempts
     
     try:
         if twm is None:
@@ -1949,22 +2022,67 @@ def start_websocket_monitoring(symbol):
         print(f"🔌 Starting WebSocket monitoring for {symbol}")
         twm.start_symbol_ticker_socket(callback=handle_websocket_message, symbol=symbol)
         
+        websocket_restart_attempts = 0  # Reset counter jika berhasil
+        return True
+        
     except Exception as e:
         print(f"❌ Error starting WebSocket for {symbol}: {e}")
+        websocket_restart_attempts += 1
+        
+        if websocket_restart_attempts >= MAX_WEBSOCKET_RESTARTS:
+            print(f"💀 Max WebSocket restart attempts reached. Switching to polling.")
+            send_telegram_message("⚠️ <b>WebSocket failed</b>\nSwitching to polling mode.")
+            return False
+        
+        # Tunggu sebelum restart
+        wait_time = 2 ** websocket_restart_attempts  # Exponential backoff
+        print(f"🔄 Restarting WebSocket in {wait_time}s (attempt {websocket_restart_attempts})")
+        time.sleep(wait_time)
+        return start_websocket_monitoring(symbol)  # Recursive restart
 
 def stop_websocket_monitoring():
     """Stop all WebSocket monitoring dengan error handling"""
-    global twm
+    global twm, websocket_restart_attempts
     
     try:
         if twm:
             print("🔌 Stopping WebSocket monitoring...")
             twm.stop()
             twm = None
+            websocket_restart_attempts = 0
             print("✅ WebSocket monitoring stopped")
     except Exception as e:
         print(f"❌ Error stopping WebSocket: {e}")
         twm = None  # Force reset
+        websocket_restart_attempts = 0
+
+# ==================== POLLING FALLBACK SYSTEM ====================
+def start_polling_monitoring(symbol):
+    """Start polling monitoring sebagai fallback ketika WebSocket gagal"""
+    print(f"🔄 Starting POLLING monitoring for {symbol}")
+    
+    def polling_worker():
+        while active_position and active_position['symbol'] == symbol and BOT_RUNNING:
+            try:
+                current_price = get_current_price(symbol)
+                if current_price:
+                    # Simulasikan WebSocket message
+                    mock_msg = {
+                        'e': '24hrTicker',
+                        's': symbol,
+                        'c': str(current_price)
+                    }
+                    handle_websocket_message(mock_msg)
+                
+                # Poll setiap 2 detik
+                time.sleep(2)
+            except Exception as e:
+                print(f"❌ Polling error for {symbol}: {e}")
+                time.sleep(5)
+    
+    polling_thread = threading.Thread(target=polling_worker, daemon=True)
+    polling_thread.start()
+    return True
 
 # ==================== MONITORING & EXECUTION YANG DIPERBAIKI ====================
 def monitor_coins_until_signal():
@@ -2116,9 +2234,13 @@ def fast_execute_signal(signal):
         # LOG CEPAT
         log_position_opened(symbol, entry_price, executed_qty, take_profit, stop_loss, confidence)
         
-        # Start monitoring jika live
+        # Start monitoring - coba WebSocket dulu, fallback ke polling
+        monitoring_started = False
         if ORDER_RUN:
-            start_websocket_monitoring(symbol)
+            monitoring_started = start_websocket_monitoring(symbol)
+            if not monitoring_started:
+                print("🔄 WebSocket failed, switching to polling...")
+                monitoring_started = start_polling_monitoring(symbol)
         
         print(f"   ✅ FAST EXECUTION COMPLETE: {symbol}")
         return True
@@ -2129,7 +2251,7 @@ def fast_execute_signal(signal):
 
 # ==================== MAIN BOT LOGIC YANG DIPERBAIKI ====================
 def main_improved_fast():
-    """Main bot function dengan Telegram control"""
+    """Main bot function dengan Telegram control dan error handling yang lebih baik"""
     global current_investment, active_position, twm, BOT_RUNNING
     
     print("🚀 Starting BOT - TELEGRAM CONTROLLED VERSION")
@@ -2151,9 +2273,26 @@ def main_improved_fast():
         print(f"🌐 Bot running from IP: {public_ip}")
     
     # ✅ TEST KONEKSI BINANCE
-    if not check_binance_connection():
-        print("❌ Binance connection test failed. Check your API keys and IP whitelist.")
-        return
+    try:
+        if not check_binance_connection():
+            print("❌ Binance connection test failed. Check your API keys and IP whitelist.")
+            return
+    except IPBannedException as e:
+        print(f"🔴 {e.message}")
+        if e.banned_until:
+            wait_until = e.banned_until / 1000  # Convert to seconds
+            wait_time = wait_until - time.time()
+            if wait_time > 0:
+                print(f"⏳ Waiting until ban is lifted ({wait_time:.0f}s)...")
+                time.sleep(wait_time)
+                print("🔄 Ban period over, restarting...")
+                return main_improved_fast()  # Restart bot
+        else:
+            # Unknown ban duration, wait 1 hour
+            print("⏳ Unknown ban duration, waiting 1 hour...")
+            time.sleep(3600)
+            print("🔄 Restarting after 1 hour wait...")
+            return main_improved_fast()
     
     startup_msg = f"🤖 <b>BOT STARTED - TELEGRAM CONTROL</b>\nCoins: {len(COINS)}\nMode: {'LIVE' if ORDER_RUN else 'SIMULATION'}\nStatus: MENUNGGU PERINTAH /start"
     send_telegram_message(startup_msg)
@@ -2253,6 +2392,25 @@ def main_improved_fast():
             send_telegram_message("🛑 <b>BOT DIHENTIKAN OLEH PENGGUNA</b>")
             BOT_RUNNING = False
             break
+        except IPBannedException as e:
+            print(f"🔴 {e.message}")
+            send_telegram_message(f"🔴 <b>IP BANNED</b>\n{e.message}")
+            if e.banned_until:
+                wait_until = e.banned_until / 1000
+                wait_time = wait_until - time.time()
+                if wait_time > 0:
+                    print(f"⏳ Waiting {wait_time:.0f}s for ban to be lifted...")
+                    time.sleep(wait_time)
+                    print("🔄 Restarting after ban...")
+            else:
+                print("⏳ Unknown ban duration, waiting 1 hour...")
+                time.sleep(3600)
+            # Continue loop setelah wait
+        except WebSocketError as e:
+            print(f"🔴 WebSocket critical error: {e}")
+            send_telegram_message(f"🔴 <b>WebSocket Error</b>\nSwitching to polling mode.")
+            stop_websocket_monitoring()
+            # Continue dengan polling mode
         except Exception as e:
             print(f"❌ Main loop error: {e}")
             time.sleep(10)
@@ -2265,7 +2423,7 @@ def main_improved_fast():
 def main():
     main_improved_fast()
 
-import threading, requests, time
+import threading, requests, time, random
 
 # ✅ Fungsi ping otomatis agar Render tidak tidur
 def keep_alive_ping():
@@ -2304,6 +2462,23 @@ def safe_run_worker():
             if not BOT_RUNNING:
                 print("🛑 Bot stopped normally via command")
                 break
+                
+        except IPBannedException as e:
+            restart_count += 1
+            if e.banned_until:
+                wait_until = e.banned_until / 1000
+                wait_time = wait_until - time.time()
+                if wait_time > 0:
+                    print(f"🔴 IP Banned. Waiting {wait_time:.0f}s until {time.ctime(wait_until)}")
+                    send_telegram_message(f"🔴 <b>IP Banned</b>\nBot will resume after {time.ctime(wait_until)}")
+                    time.sleep(wait_time)
+                else:
+                    time.sleep(3600)  # Wait 1 hour if ban time already passed
+            else:
+                wait_time = 3600  # 1 hour default
+                print(f"🔴 IP Banned. Waiting {wait_time}s")
+                send_telegram_message(f"🔴 <b>IP Banned</b>\nBot will resume after 1 hour")
+                time.sleep(wait_time)
                 
         except Exception as e:
             restart_count += 1
