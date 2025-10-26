@@ -15,6 +15,7 @@ import subprocess
 import io
 import threading
 import re
+import random
 
 # Load environment variables dari file .env
 load_dotenv()
@@ -2315,11 +2316,13 @@ def main_improved_fast():
             
             # Jika bot tidak running, tunggu saja
             if not BOT_RUNNING:
+                print("🔴 Bot is not running, waiting for /start command...")
                 time.sleep(1)
                 continue
             
             # CEK PAUSE STATE - sistem adaptasi
             if is_trading_paused():
+                print("🔒 Trading is paused, waiting...")
                 time.sleep(DELAY_WHEN_PAUSED)
                 continue
             
@@ -2423,8 +2426,6 @@ def main_improved_fast():
 def main():
     main_improved_fast()
 
-import threading, requests, time, random
-
 # ✅ Fungsi ping otomatis agar Render tidak tidur
 def keep_alive_ping():
     """Keep-alive ping untuk Render agar tidak auto-sleep."""
@@ -2440,7 +2441,7 @@ def keep_alive_ping():
             time.sleep(300)  # setiap 5 menit
         except Exception as e:
             print("⚠️ Keep-alive error:", e)
-        time.sleep(300)  # setiap 5 menit
+            time.sleep(300)  # setiap 5 menit
 
 # ✅ Worker utama dengan watchdog biar gak macet
 def safe_run_worker():
@@ -2500,6 +2501,28 @@ def safe_run_worker():
         send_telegram_message(error_msg)
         print("💀 Bot crashed too many times, stopping...")
 
+# ✅ RENDER-SPECIFIC FIXES - BOT HARUS DIMULAI OTOMATIS
+def start_bot_for_render():
+    """Start bot khusus untuk environment Render"""
+    print("🚀 Starting bot for Render environment...")
+    
+    # Mulai keep-alive thread
+    keep_alive_thread = threading.Thread(target=keep_alive_ping, daemon=True)
+    keep_alive_thread.start()
+    print("💓 Keep-alive thread started")
+    
+    # Mulai health endpoint
+    health_thread = threading.Thread(target=create_simple_health_endpoint, daemon=True)
+    health_thread.start()
+    print("🌐 Health endpoint started")
+    
+    # Tunggu sebentar untuk memastikan service ready
+    time.sleep(10)
+    
+    # Mulai bot worker - OTOMATIS
+    print("🤖 Auto-starting bot worker...")
+    BOT_RUNNING = True  # Set status langsung ke True
+    safe_run_worker()
 
 # 🚀 Bagian utama: dijalankan hanya jika script dijalankan langsung
 if __name__ == "__main__":
@@ -2510,26 +2533,33 @@ if __name__ == "__main__":
     # Check environment
     is_render = check_render_environment()
     
-    # Start health endpoint jika di Render
     if is_render:
+        # Di Render, jalankan bot OTOMATIS
+        print("🚀 Running on RENDER - Auto-starting bot...")
+        start_bot_for_render()
+    else:
+        # Di local, jalankan normal dengan kontrol Telegram
+        print("💻 Running locally - Manual control via Telegram")
+        
+        # Start keep-alive thread
+        keep_alive_thread = threading.Thread(target=keep_alive_ping, daemon=True)
+        keep_alive_thread.start()
+        print("💓 Keep-alive thread started")
+        
+        # Start health endpoint
         health_thread = threading.Thread(target=create_simple_health_endpoint, daemon=True)
         health_thread.start()
         print("🌐 Health endpoint started")
-    
-    # Start keep-alive thread
-    keep_alive_thread = threading.Thread(target=keep_alive_ping, daemon=True)
-    keep_alive_thread.start()
-    print("💓 Keep-alive thread started")
-    
-    # Jalankan bot worker
-    try:
-        safe_run_worker()
-    except KeyboardInterrupt:
-        print("\n🛑 Bot shutdown requested")
-        BOT_RUNNING = False
-        stop_websocket_monitoring()
-    except Exception as e:
-        print(f"💀 Fatal error: {e}")
-        send_telegram_message(f"🔴 <b>FATAL ERROR</b>\n{str(e)}")
+        
+        # Jalankan bot worker
+        try:
+            safe_run_worker()
+        except KeyboardInterrupt:
+            print("\n🛑 Bot shutdown requested")
+            BOT_RUNNING = False
+            stop_websocket_monitoring()
+        except Exception as e:
+            print(f"💀 Fatal error: {e}")
+            send_telegram_message(f"🔴 <b>FATAL ERROR</b>\n{str(e)}")
     
     print("✅ Bot shutdown complete")
