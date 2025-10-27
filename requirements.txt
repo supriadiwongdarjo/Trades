@@ -1,4 +1,4 @@
-binance==0.1.9
+binance==0.3.77
 python-binance==1.0.19
 numpy==1.24.3
 pandas==2.0.3
