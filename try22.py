@@ -17,8 +17,30 @@ load_dotenv()
 warnings.filterwarnings('ignore')
 
 # ==================== KONFIGURASI ====================
-API_KEY = os.getenv('BINANCE_API_KEY')
-API_SECRET = os.getenv('BINANCE_API_SECRET')
+# Multiple API Keys untuk fallback
+API_KEYS = [
+    {
+        'key': os.getenv('BINANCE_API_KEY_1'),
+        'secret': os.getenv('BINANCE_API_SECRET_1')
+    },
+    {
+        'key': os.getenv('BINANCE_API_KEY_2'), 
+        'secret': os.getenv('BINANCE_API_SECRET_2')
+    },
+    {
+        'key': os.getenv('BINANCE_API_KEY_3'),
+        'secret': os.getenv('BINANCE_API_SECRET_3')
+    }
+]
+
+# Default ke API key lama untuk kompatibilitas
+if not API_KEYS[0]['key']:
+    API_KEYS[0] = {
+        'key': os.getenv('BINANCE_API_KEY'),
+        'secret': os.getenv('BINANCE_API_SECRET')
+    }
+
+CURRENT_API_INDEX = 0
 INITIAL_INVESTMENT = float(os.getenv('INITIAL_INVESTMENT', '5.5'))
 ORDER_RUN = os.getenv('ORDER_RUN', 'False').lower() == 'true'
 
@@ -212,6 +234,65 @@ def check_binance_connection():
         print(f"❌ Binance connection test failed: {e}")
         return False
 
+# ==================== MULTIPLE API KEY MANAGEMENT ====================
+def rotate_api_key():
+    """Rotate ke API key berikutnya"""
+    global CURRENT_API_INDEX, client
+    
+    old_index = CURRENT_API_INDEX
+    CURRENT_API_INDEX = (CURRENT_API_INDEX + 1) % len(API_KEYS)
+    
+    print(f"🔄 Rotating API key: {old_index} -> {CURRENT_API_INDEX}")
+    
+    if initialize_binance_client():
+        send_telegram_message(f"🔄 <b>API KEY DIPERBARUI</b>\nBerpindah ke API key {CURRENT_API_INDEX + 1}")
+        return True
+    else:
+        print(f"❌ Failed to rotate to API key {CURRENT_API_INDEX}")
+        return False
+
+def initialize_binance_client():
+    """Initialize Binance client dengan API key yang aktif"""
+    global client, CURRENT_API_INDEX
+    
+    try:
+        api_key = API_KEYS[CURRENT_API_INDEX]['key']
+        api_secret = API_KEYS[CURRENT_API_INDEX]['secret']
+        
+        if not api_key or not api_secret:
+            print(f"❌ API key {CURRENT_API_INDEX} tidak valid")
+            return False
+            
+        client = Client(api_key, api_secret, {"timeout": 20})
+        print(f"✅ Binance client initialized dengan API key {CURRENT_API_INDEX + 1}")
+        
+        # Test connection
+        client.ping()
+        print(f"✅ Binance connection test successful dengan API key {CURRENT_API_INDEX + 1}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to initialize Binance client dengan API key {CURRENT_API_INDEX + 1}: {e}")
+        return False
+
+def handle_binance_error():
+    """Handle error Binance dan rotate API key"""
+    global BOT_RUNNING
+    
+    print("🔴 Binance error detected, attempting API key rotation...")
+    
+    # Coba rotate API key
+    for attempt in range(len(API_KEYS)):
+        if rotate_api_key():
+            print("✅ API key rotation successful, continuing operations...")
+            return True
+    
+    # Jika semua API key gagal
+    print("❌ All API keys failed, stopping bot...")
+    send_telegram_message("🔴 <b>SEMUA API KEY GAGAL</b>\nBot dihentikan otomatis.")
+    BOT_RUNNING = False
+    return False
+
 # ==================== TELEGRAM & LOGGING ====================
 def load_config():
     """Load configuration dari file"""
@@ -353,10 +434,108 @@ def process_telegram_command(command, chat_id, update_id):
         elif command == '/help':
             send_help_message(chat_id)
             
+        elif command == '/sell':
+            handle_sell_command(chat_id)
+            
+        elif command.startswith('/coins '):
+            handle_coins_command(command, chat_id)
+            
+        elif command == '/info':
+            handle_info_command(chat_id)
+            
         mark_update_processed(update_id)
         
     except Exception as e:
         send_telegram_message(f"❌ <b>ERROR PROCESSING COMMAND</b>\n{str(e)}")
+
+def handle_sell_command(chat_id):
+    """Handle /sell command untuk menjual posisi aktif"""
+    global active_position, BOT_RUNNING
+    
+    if not active_position:
+        send_telegram_message("❌ <b>TIDAK ADA POSISI AKTIF</b>\nTidak ada posisi yang bisa dijual.")
+        return
+    
+    if not BOT_RUNNING:
+        send_telegram_message("❌ <b>BOT SEDANG BERHENTI</b>\nAktifkan bot terlebih dahulu dengan /start.")
+        return
+    
+    symbol = active_position['symbol']
+    quantity = active_position['quantity']
+    entry_price = active_position['entry_price']
+    
+    send_telegram_message(f"🔄 <b>MENJALANKAN SELL MANUAL</b>\nSymbol: {symbol}\nQuantity: {quantity:.6f}")
+    
+    success = execute_market_sell(symbol, quantity, entry_price, "MANUAL SELL")
+    
+    if success:
+        send_telegram_message(f"✅ <b>SELL MANUAL BERHASIL</b>\n{symbol} telah dijual.")
+    else:
+        send_telegram_message(f"❌ <b>SELL MANUAL GAGAL</b>\nGagal menjual {symbol}.")
+
+def handle_coins_command(command, chat_id):
+    """Handle /coins command untuk menambah/hapus coin"""
+    global BOT_RUNNING, COINS
+    
+    if BOT_RUNNING:
+        send_telegram_message("❌ <b>BOT MASIH BERJALAN</b>\nHentikan bot terlebih dahulu dengan /stop sebelum mengubah daftar coin.")
+        return
+    
+    try:
+        parts = command.split()
+        if len(parts) < 3:
+            send_telegram_message("❌ Format: /coins [add/del] [coin_name]\nContoh: /coins add BTCUSDT")
+            return
+            
+        action = parts[1].lower()
+        coin_name = parts[2].upper()
+        
+        if not coin_name.endswith('USDT'):
+            coin_name += 'USDT'
+        
+        if action == 'add':
+            if coin_name in COINS:
+                send_telegram_message(f"⚠️ <b>COIN SUDAH ADA</b>\n{coin_name} sudah ada dalam daftar.")
+            else:
+                COINS.append(coin_name)
+                send_telegram_message(f"✅ <b>COIN DITAMBAHKAN</b>\n{coin_name} telah ditambahkan ke daftar.\nTotal coin: {len(COINS)}")
+                print(f"✅ Coin added: {coin_name}")
+                
+        elif action == 'del' or action == 'remove':
+            if coin_name in COINS:
+                COINS.remove(coin_name)
+                send_telegram_message(f"✅ <b>COIN DIHAPUS</b>\n{coin_name} telah dihapus dari daftar.\nTotal coin: {len(COINS)}")
+                print(f"✅ Coin removed: {coin_name}")
+            else:
+                send_telegram_message(f"❌ <b>COIN TIDAK DITEMUKAN</b>\n{coin_name} tidak ada dalam daftar.")
+                
+        else:
+            send_telegram_message("❌ Format: /coins [add/del] [coin_name]\nContoh: /coins add BTCUSDT")
+            
+    except Exception as e:
+        send_telegram_message(f"❌ Error mengubah daftar coin: {str(e)}")
+
+def handle_info_command(chat_id):
+    """Handle /info command untuk menampilkan daftar coin"""
+    global COINS
+    
+    coins_count = len(COINS)
+    
+    # Format daftar coin untuk tampilan yang rapi
+    if coins_count <= 20:
+        coins_list = "\n".join([f"• {coin}" for coin in sorted(COINS)])
+    else:
+        # Tampilkan sebagian saja jika terlalu banyak
+        coins_list = "\n".join([f"• {coin}" for coin in sorted(COINS)[:20]]) + f"\n• ... dan {coins_count - 20} coin lainnya"
+    
+    info_msg = (
+        f"📊 <b>INFORMASI COIN</b>\n"
+        f"Total Coin: {coins_count}\n"
+        f"────────────────────\n"
+        f"{coins_list}"
+    )
+    
+    send_telegram_message(info_msg)
 
 def handle_set_command(command, chat_id):
     """Handle /set command untuk mengubah konfigurasi"""
@@ -472,6 +651,7 @@ def send_bot_status(chat_id):
         f"Modal: ${current_investment:.2f}\n"
         f"Total Trade: {len(trade_history)}\n"
         f"Win Rate: {calculate_winrate():.1f}%\n"
+        f"API Key: {CURRENT_API_INDEX + 1}\n"
     )
     
     if active_position:
@@ -480,6 +660,7 @@ def send_bot_status(chat_id):
             pnl_pct = (current_price - active_position['entry_price']) / active_position['entry_price'] * 100
             status_msg += f"Posisi Aktif: {active_position['symbol']}\n"
             status_msg += f"PnL: {pnl_pct:+.2f}%\n"
+            status_msg += f"Gunakan /sell untuk close manual\n"
     else:
         status_msg += "Posisi Aktif: Tidak ada\n"
     
@@ -532,6 +713,8 @@ def send_help_message(chat_id):
         f"│ /status - Status bot saat ini\n"
         f"│ /config - Tampilkan konfigurasi\n"
         f"│ /help - Tampilkan pesan bantuan\n"
+        f"│ /sell - Jual posisi aktif (manual)\n"
+        f"│ /info - Tampilkan daftar coin\n"
         f"├────────────────────────────┤\n"
         f"│ <b>UBAH KONFIGURASI</b>\n"
         f"│ /set [param] [value]\n"
@@ -540,6 +723,12 @@ def send_help_message(chat_id):
         f"│ /set RSI_MIN_15M 30\n"
         f"│ /set POSITION_SIZING_PCT 0.3\n"
         f"│ /set ADAPTIVE_CONFIDENCE false\n"
+        f"├────────────────────────────┤\n"
+        f"│ <b>KELOLA COIN</b>\n"
+        f"│ /coins [add/del] [coin_name]\n"
+        f"│ Contoh:\n"
+        f"│ /coins add BTCUSDT\n"
+        f"│ /coins del ETHUSDT\n"
         f"└────────────────────────────┘\n"
         f"<i>Hanya bisa diubah saat bot berhenti</i>"
     )
@@ -881,19 +1070,6 @@ def is_trading_paused():
     
     return False
 
-def initialize_binance_client():
-    """Initialize Binance client"""
-    global client
-    try:
-        client = Client(API_KEY, API_SECRET, {"timeout": 20})
-        print("✅ Binance client initialized")
-        client.ping()
-        print("✅ Binance connection test successful")
-        return True
-    except Exception as e:
-        print(f"❌ Failed to initialize Binance client: {e}")
-        return False
-
 def get_symbol_info(symbol):
     """Get symbol information"""
     try:
@@ -901,6 +1077,7 @@ def get_symbol_info(symbol):
         info = client.get_symbol_info(symbol)
         return info
     except Exception as e:
+        print(f"❌ Error getting symbol info: {e}")
         return None
 
 def get_price_precision(symbol):
@@ -994,6 +1171,7 @@ def get_current_price(symbol):
         precision = get_price_precision(symbol)
         return round(price, precision)
     except Exception as e:
+        print(f"❌ Error getting current price for {symbol}: {e}")
         return None
 
 # ==================== INDIKATOR TEKNIKAL ====================
@@ -1461,8 +1639,8 @@ def monitor_coins_until_signal():
         print(f"\n🔍 SCANNING coins until signal found...")
     except Exception as e:
         print(f"❌ BINANCE CONNECTION ERROR: {e}")
-        time.sleep(5)
-        return []
+        if not handle_binance_error():
+            return []
     
     buy_signals = []
     
@@ -1607,28 +1785,32 @@ def check_position_exit():
         return
     
     symbol = active_position['symbol']
-    current_price = get_current_price(symbol)
     
-    if not current_price:
-        return
-    
-    entry_price = active_position['entry_price']
-    quantity = active_position['quantity']
-    
-    update_trailing_stop(current_price)
-    
-    stop_loss = active_position['stop_loss']
-    take_profit = active_position['take_profit']
-    
-    if current_price <= stop_loss:
-        print(f"🛑 Stop Loss hit for {symbol} at ${current_price:.6f}")
-        execute_market_sell(symbol, quantity, entry_price, "STOP LOSS")
-        return
-    
-    if current_price >= take_profit:
-        print(f"🎯 Take Profit hit for {symbol} at ${current_price:.6f}")
-        execute_market_sell(symbol, quantity, entry_price, "TAKE PROFIT")
-        return
+    try:
+        current_price = get_current_price(symbol)
+        
+        if not current_price:
+            return
+        
+        entry_price = active_position['entry_price']
+        quantity = active_position['quantity']
+        
+        update_trailing_stop(current_price)
+        
+        stop_loss = active_position['stop_loss']
+        take_profit = active_position['take_profit']
+        
+        if current_price <= stop_loss:
+            print(f"🛑 Stop Loss hit for {symbol} at ${current_price:.6f}")
+            execute_market_sell(symbol, quantity, entry_price, "STOP LOSS")
+            return
+        
+        if current_price >= take_profit:
+            print(f"🎯 Take Profit hit for {symbol} at ${current_price:.6f}")
+            execute_market_sell(symbol, quantity, entry_price, "TAKE PROFIT")
+            return
+    except Exception as e:
+        print(f"❌ Error checking position exit: {e}")
 
 # ==================== MAIN BOT LOGIC ====================
 def main_improved_fast():
@@ -1645,7 +1827,7 @@ def main_improved_fast():
     if not initialize_binance_client():
         return
     
-    startup_msg = f"🤖 <b>BOT STARTED - API MODE</b>\nCoins: {len(COINS)}\nMode: {'LIVE' if ORDER_RUN else 'SIMULATION'}\nStatus: MENUNGGU PERINTAH /start"
+    startup_msg = f"🤖 <b>BOT STARTED - API MODE</b>\nCoins: {len(COINS)}\nMode: {'LIVE' if ORDER_RUN else 'SIMULATION'}\nAPI Key: {CURRENT_API_INDEX + 1}\nStatus: MENUNGGU PERINTAH /start"
     send_telegram_message(startup_msg)
     
     consecutive_errors = 0
@@ -1673,9 +1855,8 @@ def main_improved_fast():
                 consecutive_errors += 1
                 print(f"❌ Koneksi error #{consecutive_errors}: {e}")
                 if consecutive_errors >= 3:
-                    send_telegram_message("🔴 <b>KONEKSI BINANCE TERPUTUS</b>\nBot dihentikan otomatis.")
-                    BOT_RUNNING = False
-                    break
+                    if not handle_binance_error():
+                        break
                 time.sleep(5)
                 continue
             
