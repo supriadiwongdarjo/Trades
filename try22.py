@@ -347,6 +347,9 @@ def process_telegram_command(command, chat_id, update_id):
         elif command == '/config':
             send_current_config(chat_id)
             
+        elif command.startswith('/set '):
+            handle_set_command(command, chat_id)
+            
         elif command == '/help':
             send_help_message(chat_id)
             
@@ -354,6 +357,110 @@ def process_telegram_command(command, chat_id, update_id):
         
     except Exception as e:
         send_telegram_message(f"❌ <b>ERROR PROCESSING COMMAND</b>\n{str(e)}")
+
+def handle_set_command(command, chat_id):
+    """Handle /set command untuk mengubah konfigurasi"""
+    global BOT_RUNNING
+    
+    # Cek apakah bot sedang berjalan
+    if BOT_RUNNING:
+        send_telegram_message("❌ <b>BOT MASIH BERJALAN</b>\nHentikan bot terlebih dahulu dengan /stop sebelum mengubah konfigurasi.")
+        return
+    
+    try:
+        parts = command.split()
+        if len(parts) < 3:
+            send_telegram_message("❌ Format: /set [parameter] [value]\nContoh: /set TAKE_PROFIT_PCT 0.008")
+            return
+            
+        param_name = parts[1]
+        param_value = ' '.join(parts[2:])
+        
+        config = load_config()
+        updated = False
+        
+        # Daftar parameter yang valid
+        valid_params = {
+            # Trading parameters
+            'TAKE_PROFIT_PCT': ('trading_params', float),
+            'STOP_LOSS_PCT': ('trading_params', float),
+            'TRAILING_STOP_ACTIVATION': ('trading_params', float),
+            'TRAILING_STOP_PCT': ('trading_params', float),
+            'POSITION_SIZING_PCT': ('trading_params', float),
+            'MAX_DRAWDOWN_PCT': ('trading_params', float),
+            'ADAPTIVE_CONFIDENCE': ('trading_params', bool),
+            
+            # 15M timeframe parameters
+            'RSI_MIN_15M': ('timeframe_params', int),
+            'RSI_MAX_15M': ('timeframe_params', int),
+            'EMA_SHORT_15M': ('timeframe_params', int),
+            'EMA_LONG_15M': ('timeframe_params', int),
+            'MACD_FAST_15M': ('timeframe_params', int),
+            'MACD_SLOW_15M': ('timeframe_params', int),
+            'MACD_SIGNAL_15M': ('timeframe_params', int),
+            'LRO_PERIOD_15M': ('timeframe_params', int),
+            'VOLUME_PERIOD_15M': ('timeframe_params', int),
+            
+            # 5M timeframe parameters
+            'RSI_MIN_5M': ('timeframe_params', int),
+            'RSI_MAX_5M': ('timeframe_params', int),
+            'EMA_SHORT_5M': ('timeframe_params', int),
+            'EMA_LONG_5M': ('timeframe_params', int),
+            'MACD_FAST_5M': ('timeframe_params', int),
+            'MACD_SLOW_5M': ('timeframe_params', int),
+            'MACD_SIGNAL_5M': ('timeframe_params', int),
+            'LRO_PERIOD_5M': ('timeframe_params', int),
+            'VOLUME_PERIOD_5M': ('timeframe_params', int),
+            'VOLUME_RATIO_MIN': ('timeframe_params', float)
+        }
+        
+        if param_name in valid_params:
+            section, value_type = valid_params[param_name]
+            old_value = config[section][param_name]
+            
+            try:
+                # Convert value ke tipe yang sesuai
+                if value_type == bool:
+                    if param_value.lower() in ('true', '1', 'yes', 'y', 'ya'):
+                        new_value = True
+                    elif param_value.lower() in ('false', '0', 'no', 'n', 'tidak'):
+                        new_value = False
+                    else:
+                        send_telegram_message(f"❌ Nilai boolean tidak valid: {param_value}\nGunakan: true/false, yes/no, 1/0")
+                        return
+                else:
+                    new_value = value_type(param_value)
+                
+                # Validasi nilai
+                if param_name.endswith('_PCT') and new_value <= 0:
+                    send_telegram_message(f"❌ Nilai {param_name} harus lebih besar dari 0")
+                    return
+                elif param_name.startswith('RSI_') and (new_value < 0 or new_value > 100):
+                    send_telegram_message(f"❌ Nilai {param_name} harus antara 0-100")
+                    return
+                elif param_name.startswith(('EMA_', 'MACD_', 'LRO_', 'VOLUME_')) and new_value <= 0:
+                    send_telegram_message(f"❌ Nilai {param_name} harus lebih besar dari 0")
+                    return
+                
+                config[section][param_name] = new_value
+                updated = True
+                
+            except ValueError:
+                send_telegram_message(f"❌ Format nilai tidak valid untuk {param_name}\nTipe yang diharapkan: {value_type.__name__}")
+                return
+        
+        if updated:
+            if save_config(config):
+                update_global_variables_from_config()
+                send_telegram_message(f"✅ <b>KONFIGURASI DIPERBARUI</b>\n{param_name}: {old_value} → {new_value}")
+                print(f"✅ Configuration updated: {param_name} = {new_value}")
+            else:
+                send_telegram_message("❌ Gagal menyimpan konfigurasi.")
+        else:
+            send_telegram_message(f"❌ Parameter '{param_name}' tidak ditemukan.\nGunakan /config untuk melihat parameter yang tersedia.")
+            
+    except Exception as e:
+        send_telegram_message(f"❌ Error mengubah konfigurasi: {str(e)}")
 
 def send_bot_status(chat_id):
     """Send current bot status"""
@@ -386,11 +493,31 @@ def send_current_config(chat_id):
     
     config_msg = (
         f"⚙️ <b>KONFIGURASI SAAT INI</b>\n"
-        f"TP: {trading_params['TAKE_PROFIT_PCT']*100:.2f}%\n"
-        f"SL: {trading_params['STOP_LOSS_PCT']*100:.2f}%\n"
-        f"Position: {trading_params['POSITION_SIZING_PCT']*100:.1f}%\n"
-        f"M15 RSI: {timeframe_params['RSI_MIN_15M']}-{timeframe_params['RSI_MAX_15M']}\n"
-        f"M5 RSI: {timeframe_params['RSI_MIN_5M']}-{timeframe_params['RSI_MAX_5M']}"
+        f"┌────────────────────────────┐\n"
+        f"│ <b>TRADING PARAMS</b>\n"
+        f"│ TP: {trading_params['TAKE_PROFIT_PCT']*100:.2f}%\n"
+        f"│ SL: {trading_params['STOP_LOSS_PCT']*100:.2f}%\n"
+        f"│ Position: {trading_params['POSITION_SIZING_PCT']*100:.1f}%\n"
+        f"│ Trailing Act: {trading_params['TRAILING_STOP_ACTIVATION']*100:.2f}%\n"
+        f"│ Trailing SL: {trading_params['TRAILING_STOP_PCT']*100:.2f}%\n"
+        f"│ Adaptive: {trading_params['ADAPTIVE_CONFIDENCE']}\n"
+        f"├────────────────────────────┤\n"
+        f"│ <b>M15 PARAMS</b>\n"
+        f"│ RSI: {timeframe_params['RSI_MIN_15M']}-{timeframe_params['RSI_MAX_15M']}\n"
+        f"│ EMA: {timeframe_params['EMA_SHORT_15M']}/{timeframe_params['EMA_LONG_15M']}\n"
+        f"│ MACD: {timeframe_params['MACD_FAST_15M']}/{timeframe_params['MACD_SLOW_15M']}/{timeframe_params['MACD_SIGNAL_15M']}\n"
+        f"│ LRO: {timeframe_params['LRO_PERIOD_15M']}\n"
+        f"│ Volume: {timeframe_params['VOLUME_PERIOD_15M']}\n"
+        f"├────────────────────────────┤\n"
+        f"│ <b>M5 PARAMS</b>\n"
+        f"│ RSI: {timeframe_params['RSI_MIN_5M']}-{timeframe_params['RSI_MAX_5M']}\n"
+        f"│ EMA: {timeframe_params['EMA_SHORT_5M']}/{timeframe_params['EMA_LONG_5M']}\n"
+        f"│ MACD: {timeframe_params['MACD_FAST_5M']}/{timeframe_params['MACD_SLOW_5M']}/{timeframe_params['MACD_SIGNAL_5M']}\n"
+        f"│ LRO: {timeframe_params['LRO_PERIOD_5M']}\n"
+        f"│ Volume: {timeframe_params['VOLUME_PERIOD_5M']}\n"
+        f"│ Volume Ratio: {timeframe_params['VOLUME_RATIO_MIN']}\n"
+        f"└────────────────────────────┘\n"
+        f"Gunakan /set [parameter] [value] untuk mengubah konfigurasi"
     )
     
     send_telegram_message(config_msg)
@@ -399,11 +526,22 @@ def send_help_message(chat_id):
     """Send help message"""
     help_msg = (
         f"📖 <b>BOT TRADING COMMANDS</b>\n"
-        f"/start - Mulai bot trading\n"
-        f"/stop - Hentikan bot\n"
-        f"/status - Status bot saat ini\n"
-        f"/config - Tampilkan konfigurasi\n"
-        f"/help - Tampilkan pesan bantuan"
+        f"┌────────────────────────────┐\n"
+        f"│ /start - Mulai bot trading\n"
+        f"│ /stop - Hentikan bot\n"
+        f"│ /status - Status bot saat ini\n"
+        f"│ /config - Tampilkan konfigurasi\n"
+        f"│ /help - Tampilkan pesan bantuan\n"
+        f"├────────────────────────────┤\n"
+        f"│ <b>UBAH KONFIGURASI</b>\n"
+        f"│ /set [param] [value]\n"
+        f"│ Contoh:\n"
+        f"│ /set TAKE_PROFIT_PCT 0.008\n"
+        f"│ /set RSI_MIN_15M 30\n"
+        f"│ /set POSITION_SIZING_PCT 0.3\n"
+        f"│ /set ADAPTIVE_CONFIDENCE false\n"
+        f"└────────────────────────────┘\n"
+        f"<i>Hanya bisa diubah saat bot berhenti</i>"
     )
     
     send_telegram_message(help_msg)
