@@ -106,6 +106,12 @@ twm = None
 websocket_restart_attempts = 0
 MAX_WEBSOCKET_RESTARTS = 3
 
+# FIX UNTUK WEBSOCKET SPAM - VARIABEL BARU
+last_websocket_price = None
+last_websocket_time = 0
+websocket_spam_count = 0
+MAX_WEBSOCKET_SPAM = 10  # Maksimal spam sebelum switch ke polling
+
 # Sistem Adaptasi
 market_state = {
     'trending': False,
@@ -1939,7 +1945,7 @@ def check_trailing_stop(current_price, symbol):
 # ==================== WEBSOCKET MANAGEMENT YANG DIPERBAIKI ====================
 def handle_websocket_message(msg):
     """Handle WebSocket messages untuk real-time monitoring dengan error handling"""
-    global active_position, websocket_restart_attempts
+    global active_position, websocket_restart_attempts, last_websocket_price, last_websocket_time, websocket_spam_count
     
     try:
         if msg['e'] == 'error':
@@ -1954,6 +1960,26 @@ def handle_websocket_message(msg):
             
         symbol = msg['s']
         current_price = float(msg['c'])
+        current_time = time.time()
+        
+        # 🚨 FIX UNTUK WEBSOCKET SPAM - DETEKSI SPAM
+        if (last_websocket_price == current_price and 
+            current_time - last_websocket_time < 1.0):  # Harga sama dalam 1 detik
+            websocket_spam_count += 1
+            
+            if websocket_spam_count > MAX_WEBSOCKET_SPAM:
+                print(f"🚨 WEBSOCKET SPAM DETECTED! Switching to polling for {symbol}")
+                send_telegram_message(f"🚨 <b>WEBSOCKET SPAM DETECTED</b>\nSwitching to polling for {symbol}")
+                stop_websocket_monitoring()
+                start_polling_monitoring(symbol)
+                return
+            elif websocket_spam_count % 5 == 0:  # Log setiap 5 spam
+                print(f"⚠️ WebSocket spam detected: {websocket_spam_count} identical messages")
+        else:
+            # Reset spam counter jika harga berubah
+            websocket_spam_count = 0
+            last_websocket_price = current_price
+            last_websocket_time = current_time
         
         # Cek apakah ini coin yang kita pegang
         if not active_position or active_position['symbol'] != symbol:
@@ -1963,9 +1989,19 @@ def handle_websocket_message(msg):
         if active_position.get('selling_in_progress'):
             return
         
-        print(f"📊 WebSocket Update: {symbol} = ${current_price:.6f}")
-        
+        # 🚨 FIX: HANYA LOG JIKA HARGA BERUBAH SIGNIFIKAN
         entry_price = active_position['entry_price']
+        pnl_pct = (current_price - entry_price) / entry_price * 100
+        
+        # Hanya log jika PnL berubah signifikan (> 0.01%) atau setiap 10 detik
+        should_log = (abs(pnl_pct - active_position.get('last_logged_pnl', 0)) > 0.01 or 
+                     current_time - active_position.get('last_log_time', 0) > 10)
+        
+        if should_log:
+            print(f"📊 {symbol}: ${current_price:.6f} | PnL: {pnl_pct:+.2f}%")
+            active_position['last_logged_pnl'] = pnl_pct
+            active_position['last_log_time'] = current_time
+        
         quantity = active_position['quantity']
         
         # Update trailing stop
@@ -2013,7 +2049,7 @@ def handle_websocket_message(msg):
 
 def start_websocket_monitoring(symbol):
     """Start WebSocket monitoring for symbol dengan error handling"""
-    global twm, websocket_restart_attempts
+    global twm, websocket_restart_attempts, last_websocket_price, last_websocket_time, websocket_spam_count
     
     try:
         if twm is None:
@@ -2022,6 +2058,11 @@ def start_websocket_monitoring(symbol):
         
         print(f"🔌 Starting WebSocket monitoring for {symbol}")
         twm.start_symbol_ticker_socket(callback=handle_websocket_message, symbol=symbol)
+        
+        # Reset spam counter
+        websocket_spam_count = 0
+        last_websocket_price = None
+        last_websocket_time = time.time()
         
         websocket_restart_attempts = 0  # Reset counter jika berhasil
         return True
@@ -2043,7 +2084,7 @@ def start_websocket_monitoring(symbol):
 
 def stop_websocket_monitoring():
     """Stop all WebSocket monitoring dengan error handling"""
-    global twm, websocket_restart_attempts
+    global twm, websocket_restart_attempts, last_websocket_price, last_websocket_time, websocket_spam_count
     
     try:
         if twm:
@@ -2051,11 +2092,19 @@ def stop_websocket_monitoring():
             twm.stop()
             twm = None
             websocket_restart_attempts = 0
+            # Reset spam variables
+            last_websocket_price = None
+            last_websocket_time = 0
+            websocket_spam_count = 0
             print("✅ WebSocket monitoring stopped")
     except Exception as e:
         print(f"❌ Error stopping WebSocket: {e}")
         twm = None  # Force reset
         websocket_restart_attempts = 0
+        # Reset spam variables
+        last_websocket_price = None
+        last_websocket_time = 0
+        websocket_spam_count = 0
 
 # ==================== POLLING FALLBACK SYSTEM ====================
 def start_polling_monitoring(symbol):
@@ -2063,20 +2112,33 @@ def start_polling_monitoring(symbol):
     print(f"🔄 Starting POLLING monitoring for {symbol}")
     
     def polling_worker():
+        last_poll_price = None
+        poll_count = 0
+        
         while active_position and active_position['symbol'] == symbol and BOT_RUNNING:
             try:
                 current_price = get_current_price(symbol)
                 if current_price:
-                    # Simulasikan WebSocket message
-                    mock_msg = {
-                        'e': '24hrTicker',
-                        's': symbol,
-                        'c': str(current_price)
-                    }
-                    handle_websocket_message(mock_msg)
+                    # Simulasikan WebSocket message - HANYA JIKA HARGA BERUBAH
+                    if current_price != last_poll_price:
+                        mock_msg = {
+                            'e': '24hrTicker',
+                            's': symbol,
+                            'c': str(current_price)
+                        }
+                        handle_websocket_message(mock_msg)
+                        last_poll_price = current_price
+                    
+                    poll_count += 1
+                    # Log setiap 10 poll atau jika PnL berubah signifikan
+                    if poll_count % 10 == 0:
+                        if active_position:
+                            entry_price = active_position['entry_price']
+                            pnl_pct = (current_price - entry_price) / entry_price * 100
+                            print(f"📊 [POLLING] {symbol}: ${current_price:.6f} | PnL: {pnl_pct:+.2f}%")
                 
-                # Poll setiap 2 detik
-                time.sleep(2)
+                # Poll setiap 3 detik untuk polling
+                time.sleep(3)
             except Exception as e:
                 print(f"❌ Polling error for {symbol}: {e}")
                 time.sleep(5)
@@ -2229,7 +2291,9 @@ def fast_execute_signal(signal):
             'highest_price': entry_price,
             'trailing_active': False,
             'confidence': confidence,
-            'timestamp': time.time()
+            'timestamp': time.time(),
+            'last_logged_pnl': 0,
+            'last_log_time': 0
         }
         
         # LOG CEPAT
