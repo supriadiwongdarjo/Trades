@@ -458,7 +458,20 @@ def handle_modal_command(command, chat_id):
             send_telegram_message(f"❌ Format: /modal [jumlah_usdt]\nContoh: /modal 10.5\nModal saat ini: ${current_investment:.2f}")
             return
             
-        new_investment = float(parts[1])
+        # Handle berbagai format angka
+        modal_str = parts[1].replace(',', '.')  # Ganti koma dengan titik
+        # Hapus karakter non-digit kecuali titik
+        modal_str = ''.join(c for c in modal_str if c.isdigit() or c == '.')
+        
+        if not modal_str or modal_str == '.':
+            send_telegram_message("❌ Format angka tidak valid. Contoh: /modal 5.4")
+            return
+        
+        new_investment = float(modal_str)
+
+        if new_investment <= 0:  # Untuk modal command  
+            send_telegram_message("❌ Modal harus lebih besar dari 0")
+            return
         
         if new_investment <= 0:
             send_telegram_message("❌ Modal harus lebih besar dari 0")
@@ -510,16 +523,30 @@ def handle_sell_command(command, chat_id):
         # /sell dengan parameter (tp/sl dan harga)
         action = parts[1].lower()
         try:
-            price_value = float(parts[2])
+            # Handle berbagai format angka (5.4, 5,4, dll)
+            price_str = parts[2].replace(',', '.')  # Ganti koma dengan titik
+            # Hapus karakter non-digit kecuali titik
+            price_str = ''.join(c for c in price_str if c.isdigit() or c == '.')
+            
+            if not price_str or price_str == '.':
+                send_telegram_message("❌ Format harga tidak valid. Contoh: /sell tp 0.153420")
+                return
+                
+            price_value = float(price_str)
+            
+            if price_value <= 0:  # Untuk sell command
+                send_telegram_message("❌ Harga harus lebih besar dari 0")
+                return
             
             if action == 'tp':
                 if price_value <= entry_price:
                     send_telegram_message(f"❌ <b>TAKE PROFIT HARUS DI ATAS HARGA BELI</b>\nHarga beli: ${entry_price:.6f}\nTP yang diminta: ${price_value:.6f}")
                     return
-                
-                active_position['take_profit'] = price_value
-                send_telegram_message(f"✅ <b>TAKE PROFIT DIPERBARUI</b>\n{symbol}\nTP sebelumnya: ${active_position.get('take_profit_old', 'N/A'):.6f}\nTP baru: <b>${price_value:.6f}</b>")
-                print(f"✅ TP updated for {symbol}: {price_value}")
+        
+        old_tp = active_position['take_profit']
+        active_position['take_profit'] = price_value
+        send_telegram_message(f"✅ <b>TAKE PROFIT DIPERBARUI</b>\n{symbol}\nTP sebelumnya: ${old_tp:.6f}\nTP baru: <b>${price_value:.6f}</b>")
+        print(f"✅ TP updated for {symbol}: {price_value}")
                 
             elif action == 'sl':
                 if price_value >= entry_price:
@@ -2040,3 +2067,4 @@ if __name__ == "__main__":
         send_telegram_message(f"🔴 <b>FATAL ERROR</b>\n{str(e)}")
     
     print("✅ Bot shutdown complete")
+
