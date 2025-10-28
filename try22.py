@@ -40,6 +40,13 @@ if not API_KEYS[0]['key']:
         'secret': os.getenv('BINANCE_API_SECRET')
     }
 
+# Filter out empty API keys
+API_KEYS = [api for api in API_KEYS if api['key'] and api['secret']]
+
+if not API_KEYS:
+    print("❌ Tidak ada API key yang valid ditemukan!")
+    exit(1)
+
 CURRENT_API_INDEX = 0
 INITIAL_INVESTMENT = float(os.getenv('INITIAL_INVESTMENT', '5.5'))
 ORDER_RUN = os.getenv('ORDER_RUN', 'False').lower() == 'true'
@@ -101,13 +108,8 @@ COINS = [
     'PENGUUSDT','WALUSDT','MIRAUSDT','HEMIUSDT','PUMPUSDT','TRXUSDT','LTCUSDT','FFUSDT',
     'SUIUSDT','ASTERUSDT','ZECUSDT','CAKEUSDT','BNBUSDT','AVNTUSDT','DOGEUSDT','ADAUSDT',
     'XPLUSDT','XRPUSDT','DASHUSDT','SOLUSDT','LINKUSDT','AVAXUSDT', 'PEPEUSDT', 
-    'FORMUSDT', 'TRUMPUSDT', 'WIFUSDT', 'NEARUSDT', 'WBETHUSDT', 'SHIBUSDT',
-    '2ZUSDT', 'LINEAUSDT', 'APEUSDT', 'HBARUSDT', 'DOTUSDT', 'EULUSDT', 'HEIUSDT',  
-    'AAVEUSDT', 'ALICEUSDT', 'ENAUSDT', 'BATUSDT', 'HOLOUSDT', 'WLFIUSDT', 'POLUSDT',
-    'SNXUSDT', 'TRBUSDT', 'SOMIUSDT', 'ICPUSDT', 'ARPAUSDT', 'EDUUSDT', 'MAGICUSDT', 'OMUSDT',
-    'BELUSDT' , 'PHBUSDT', 'APTUSDT', 'DEGOUSDT', 'PROVEUSDT', 'YGGUSDT', 'AMPUSDT', 
-    'FTTUSDT', 'LAUSDT', 'SYRUPUSDT', 'AIUSDT', 'RSRUSDT', 'CYBERUSDT', 'OGUSDT', 'PAXGUSDT',
-    'AUDIOUSDT', 'ZKCUSDT', 'CTKUSDT', 'ACAUSDT', 'DEXEUSDT'
+    'FORMUSDT', 'TRUMPUSDT', 'POLUSDT',
+    'SNXUSDT', 'TRBUSDT', 'SOMIUSDT', 'ICPUSDT', 'ARPAUSDT', 'EDUUSDT', 'OMUSDT', 'AIUSDT', 'RSRUSDT'
 ]
 
 # ==================== INISIALISASI VARIABEL GLOBAL ====================
@@ -159,6 +161,181 @@ if os.environ.get('RENDER'):
     DELAY_BETWEEN_COINS = 0.5
     DELAY_BETWEEN_REQUESTS = 0.2
     DELAY_BETWEEN_SCANS = 5.0
+
+# ==================== MULTIPLE API KEY MANAGEMENT ====================
+def rotate_api_key():
+    """Rotate ke API key berikutnya dengan jeda"""
+    global CURRENT_API_INDEX, client
+    
+    old_index = CURRENT_API_INDEX
+    CURRENT_API_INDEX = (CURRENT_API_INDEX + 1) % len(API_KEYS)
+    
+    print(f"🔄 Rotating API key: {old_index} -> {CURRENT_API_INDEX}")
+    time.sleep(2)  # Jeda 2 detik sebelum mencoba API key baru
+    
+    if initialize_binance_client():
+        send_telegram_message(f"🔄 <b>API KEY DIPERBARUI</b>\nBerpindah ke API key {CURRENT_API_INDEX + 1}")
+        return True
+    else:
+        print(f"❌ Failed to rotate to API key {CURRENT_API_INDEX}")
+        return False
+
+def initialize_binance_client():
+    """Initialize Binance client dengan API key yang aktif"""
+    global client, CURRENT_API_INDEX
+    
+    try:
+        api_key = API_KEYS[CURRENT_API_INDEX]['key']
+        api_secret = API_KEYS[CURRENT_API_INDEX]['secret']
+        
+        if not api_key or not api_secret:
+            print(f"❌ API key {CURRENT_API_INDEX} tidak valid")
+            return False
+            
+        client = Client(api_key, api_secret, {"timeout": 20})
+        print(f"✅ Binance client initialized dengan API key {CURRENT_API_INDEX + 1}")
+        
+        # Test connection
+        client.ping()
+        print(f"✅ Binance connection test successful dengan API key {CURRENT_API_INDEX + 1}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to initialize Binance client dengan API key {CURRENT_API_INDEX + 1}: {e}")
+        return False
+
+def handle_binance_error():
+    """Handle error Binance dan rotate API key secara terus menerus"""
+    global BOT_RUNNING, active_position
+    
+    print("🔴 Binance error detected, attempting API key rotation...")
+    
+    max_attempts = len(API_KEYS) * 3  # Coba semua API key hingga 3 putaran
+    recovery_mode = False
+    
+    for attempt in range(max_attempts):
+        if rotate_api_key():
+            print("✅ API key rotation successful, continuing operations...")
+            if recovery_mode:
+                send_telegram_message("✅ <b>KONEKSI DIPULIHKAN</b>\nBot melanjutkan trading normal.")
+            return True
+        
+        # Jika semua API key gagal dalam satu putaran
+        if (attempt + 1) % len(API_KEYS) == 0:
+            wait_time = 600  # 10 menit
+            print(f"🔄 Semua API key gagal, mencoba lagi dalam {wait_time/60} menit...")
+            
+            if not recovery_mode:
+                recovery_mode = True
+                # Jika ada posisi aktif, coba close terlebih dahulu
+                if active_position:
+                    close_success = emergency_close_position()
+                    # Jika gagal close dengan semua API, anggap posisi sudah closed
+                    if not close_success:
+                        print("⚠️ Gagal menutup posisi dengan semua API, menganggap posisi sudah closed...")
+                        symbol = active_position['symbol']
+                        entry_price = active_position['entry_price']
+                        quantity = active_position['quantity']
+                        
+                        # Log sebagai forced close
+                        log_forced_position_closed(symbol, entry_price, quantity)
+                        active_position = None
+                
+                send_telegram_message(
+                    f"🔴 <b>SEMUA API KEY GAGAL - RECOVERY MODE</b>\n"
+                    f"Bot akan mencoba kembali dalam {wait_time/60} menit.\n"
+                    f"{'Posisi aktif telah dicoba untuk ditutup.' if active_position else 'Tidak ada posisi aktif.'}"
+                )
+            
+            time.sleep(wait_time)
+    
+    # Jika setelah beberapa putaran masih gagal
+    print("❌ All API keys failed after multiple attempts, stopping bot...")
+    send_telegram_message("🔴 <b>SEMUA API KEY GAGAL TOTAL</b>\nBot dihentikan otomatis.")
+    BOT_RUNNING = False
+    return False
+
+def emergency_close_position():
+    """Coba menutup posisi darurat saat semua API key gagal"""
+    global active_position
+    
+    if not active_position:
+        return True  # Tidak ada posisi, anggap berhasil
+    
+    symbol = active_position['symbol']
+    print(f"🆘 Mencoba close posisi darurat: {symbol}")
+    
+    # Coba semua API key untuk close position
+    original_api_index = CURRENT_API_INDEX
+    
+    for i in range(len(API_KEYS)):
+        CURRENT_API_INDEX = i
+        if initialize_binance_client():
+            try:
+                current_price = get_current_price(symbol)
+                if current_price:
+                    success = execute_market_sell(
+                        symbol, 
+                        active_position['quantity'], 
+                        active_position['entry_price'], 
+                        "EMERGENCY CLOSE"
+                    )
+                    if success:
+                        print(f"✅ Posisi darurat berhasil ditutup dengan API key {i+1}")
+                        CURRENT_API_INDEX = original_api_index
+                        return True
+            except Exception as e:
+                print(f"❌ Gagal close posisi dengan API key {i+1}: {e}")
+    
+    # Kembalikan ke API key original
+    CURRENT_API_INDEX = original_api_index
+    print("❌ Gagal menutup posisi darurat dengan semua API key")
+    return False
+
+def log_forced_position_closed(symbol, entry_price, quantity):
+    """Log ketika posisi dipaksa ditutup karena semua API gagal"""
+    global current_investment, trade_history
+    
+    try:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Gunakan entry price sebagai exit price (asumsi tidak ada profit/loss)
+        exit_price = entry_price
+        pnl = 0
+        pnl_pct = 0
+        
+        trade_record = {
+            'timestamp': timestamp,
+            'symbol': symbol,
+            'entry_price': entry_price,
+            'exit_price': exit_price,
+            'quantity': quantity,
+            'pnl': pnl,
+            'pnl_pct': pnl_pct,
+            'exit_type': "FORCED CLOSE (API FAILURE)",
+            'capital_after': current_investment
+        }
+        trade_history.append(trade_record)
+        
+        save_trade_history()
+        
+        log_entry = (f"📉 FORCED POSITION CLOSED | {symbol} | Exit: API FAILURE | "
+                    f"Entry: ${entry_price:.6f} | Exit: ${exit_price:.6f} | "
+                    f"PnL: ${pnl:.4f} ({pnl_pct:+.2f}%) | Capital: ${current_investment:.2f}")
+        
+        write_log(log_entry)
+        
+        telegram_msg = (f"📉 <b>FORCED POSITION CLOSED - API FAILURE</b>\n"
+                      f"Symbol: {symbol}\n"
+                      f"Entry: ${entry_price:.6f} | Exit: ${exit_price:.6f}\n"
+                      f"PnL: <b>{pnl_pct:+.2f}%</b> | Amount: ${pnl:.4f}\n"
+                      f"Capital: <b>${current_investment:.2f}</b>\n"
+                      f"<i>Posisi dipaksa ditutup karena semua API gagal</i>")
+        
+        send_telegram_message(telegram_msg)
+        
+    except Exception as e:
+        print(f"❌ Error logging forced position close: {e}")
 
 # ==================== FUNGSI UTAMA ====================
 def get_public_ip():
@@ -233,65 +410,6 @@ def check_binance_connection():
     except Exception as e:
         print(f"❌ Binance connection test failed: {e}")
         return False
-
-# ==================== MULTIPLE API KEY MANAGEMENT ====================
-def rotate_api_key():
-    """Rotate ke API key berikutnya"""
-    global CURRENT_API_INDEX, client
-    
-    old_index = CURRENT_API_INDEX
-    CURRENT_API_INDEX = (CURRENT_API_INDEX + 1) % len(API_KEYS)
-    
-    print(f"🔄 Rotating API key: {old_index} -> {CURRENT_API_INDEX}")
-    
-    if initialize_binance_client():
-        send_telegram_message(f"🔄 <b>API KEY DIPERBARUI</b>\nBerpindah ke API key {CURRENT_API_INDEX + 1}")
-        return True
-    else:
-        print(f"❌ Failed to rotate to API key {CURRENT_API_INDEX}")
-        return False
-
-def initialize_binance_client():
-    """Initialize Binance client dengan API key yang aktif"""
-    global client, CURRENT_API_INDEX
-    
-    try:
-        api_key = API_KEYS[CURRENT_API_INDEX]['key']
-        api_secret = API_KEYS[CURRENT_API_INDEX]['secret']
-        
-        if not api_key or not api_secret:
-            print(f"❌ API key {CURRENT_API_INDEX} tidak valid")
-            return False
-            
-        client = Client(api_key, api_secret, {"timeout": 20})
-        print(f"✅ Binance client initialized dengan API key {CURRENT_API_INDEX + 1}")
-        
-        # Test connection
-        client.ping()
-        print(f"✅ Binance connection test successful dengan API key {CURRENT_API_INDEX + 1}")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Failed to initialize Binance client dengan API key {CURRENT_API_INDEX + 1}: {e}")
-        return False
-
-def handle_binance_error():
-    """Handle error Binance dan rotate API key"""
-    global BOT_RUNNING
-    
-    print("🔴 Binance error detected, attempting API key rotation...")
-    
-    # Coba rotate API key
-    for attempt in range(len(API_KEYS)):
-        if rotate_api_key():
-            print("✅ API key rotation successful, continuing operations...")
-            return True
-    
-    # Jika semua API key gagal
-    print("❌ All API keys failed, stopping bot...")
-    send_telegram_message("🔴 <b>SEMUA API KEY GAGAL</b>\nBot dihentikan otomatis.")
-    BOT_RUNNING = False
-    return False
 
 # ==================== TELEGRAM & LOGGING ====================
 def load_config():
@@ -643,7 +761,7 @@ def handle_set_command(command, chat_id):
 
 def send_bot_status(chat_id):
     """Send current bot status"""
-    global BOT_RUNNING, active_position, current_investment, trade_history
+    global BOT_RUNNING, active_position, current_investment, trade_history, CURRENT_API_INDEX
     
     status_msg = (
         f"🤖 <b>BOT STATUS</b>\n"
@@ -655,11 +773,18 @@ def send_bot_status(chat_id):
     )
     
     if active_position:
-        current_price = get_current_price(active_position['symbol'])
-        if current_price:
-            pnl_pct = (current_price - active_position['entry_price']) / active_position['entry_price'] * 100
+        try:
+            current_price = get_current_price(active_position['symbol'])
+            if current_price:
+                pnl_pct = (current_price - active_position['entry_price']) / active_position['entry_price'] * 100
+                status_msg += f"Posisi Aktif: {active_position['symbol']}\n"
+                status_msg += f"Entry: ${active_position['entry_price']:.6f}\n"
+                status_msg += f"Current: ${current_price:.6f}\n"
+                status_msg += f"PnL: {pnl_pct:+.2f}%\n"
+                status_msg += f"Gunakan /sell untuk close manual\n"
+        except:
             status_msg += f"Posisi Aktif: {active_position['symbol']}\n"
-            status_msg += f"PnL: {pnl_pct:+.2f}%\n"
+            status_msg += f"Entry: ${active_position['entry_price']:.6f}\n"
             status_msg += f"Gunakan /sell untuk close manual\n"
     else:
         status_msg += "Posisi Aktif: Tidak ada\n"
