@@ -108,8 +108,13 @@ COINS = [
     'PENGUUSDT','WALUSDT','MIRAUSDT','HEMIUSDT','PUMPUSDT','TRXUSDT','LTCUSDT','FFUSDT',
     'SUIUSDT','ASTERUSDT','ZECUSDT','CAKEUSDT','BNBUSDT','AVNTUSDT','DOGEUSDT','ADAUSDT',
     'XPLUSDT','XRPUSDT','DASHUSDT','SOLUSDT','LINKUSDT','AVAXUSDT', 'PEPEUSDT', 
-    'FORMUSDT', 'TRUMPUSDT', 'POLUSDT',
-    'SNXUSDT', 'TRBUSDT', 'SOMIUSDT', 'ICPUSDT', 'ARPAUSDT', 'EDUUSDT', 'OMUSDT', 'AIUSDT', 'RSRUSDT'
+    'FORMUSDT', 'TRUMPUSDT', 'WIFUSDT', 'NEARUSDT', 'WBETHUSDT', 'SHIBUSDT',
+    '2ZUSDT', 'LINEAUSDT', 'APEUSDT', 'HBARUSDT', 'DOTUSDT', 'EULUSDT', 'HEIUSDT',  
+    'AAVEUSDT', 'ALICEUSDT', 'ENAUSDT', 'BATUSDT', 'HOLOUSDT', 'WLFIUSDT', 'POLUSDT',
+    'SNXUSDT', 'TRBUSDT', 'SOMIUSDT', 'ICPUSDT', 'ARPAUSDT', 'EDUUSDT', 'MAGICUSDT', 'OMUSDT',
+    'BELUSDT' , 'PHBUSDT', 'APTUSDT', 'DEGOUSDT', 'PROVEUSDT', 'YGGUSDT', 'AMPUSDT', 
+    'FTTUSDT', 'LAUSDT', 'SYRUPUSDT', 'AIUSDT', 'RSRUSDT', 'CYBERUSDT', 'OGUSDT', 'PAXGUSDT',
+    'AUDIOUSDT', 'ZKCUSDT', 'CTKUSDT', 'ACAUSDT', 'DEXEUSDT'
 ]
 
 # ==================== INISIALISASI VARIABEL GLOBAL ====================
@@ -1949,8 +1954,14 @@ def main_improved_fast():
     load_trade_history()
     load_bot_state()
     
+    # Inisialisasi client Binance dengan error handling yang lebih baik
     if not initialize_binance_client():
-        return
+        print("❌ Failed to initialize Binance client, attempting recovery...")
+        if not handle_binance_error():
+            print("❌ All recovery attempts failed, stopping bot.")
+            return
+        else:
+            print("✅ Recovery successful, continuing...")
     
     startup_msg = f"🤖 <b>BOT STARTED - API MODE</b>\nCoins: {len(COINS)}\nMode: {'LIVE' if ORDER_RUN else 'SIMULATION'}\nAPI Key: {CURRENT_API_INDEX + 1}\nStatus: MENUNGGU PERINTAH /start"
     send_telegram_message(startup_msg)
@@ -2033,6 +2044,8 @@ def keep_alive_ping():
 
 def safe_run_worker():
     """Loop utama bot dengan proteksi error"""
+    global BOT_RUNNING
+    
     print("🔄 Running trading bot worker (safe mode)...")
     
     restart_count = 0
